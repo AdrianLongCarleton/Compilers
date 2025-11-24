@@ -1,0 +1,2 @@
+START > S;
+S > SYM(!) S | EPSILON(e);

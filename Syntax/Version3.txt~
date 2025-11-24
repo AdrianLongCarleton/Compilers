@@ -1,0 +1,47 @@
+HelloWorld.main
+	println("Hello World")
+	
+	#variables#
+	var i32 w = 5
+	var f32 x = 5.5
+
+	#note that var is implicit to variable declarations in the .main class#
+	str y = "hello"
+	chr z = 'z'
+	
+	#contants#
+	val bool theSkyIsBlue = true
+
+	#foo's type is implicitly i32#
+	foo = 5 + 5
+
+	#semi colons are only nessesary between mutlistatement lines#
+	foo = w; foo = 7
+
+	if !theSkyIsBlue {
+		println("There is a serious issue")
+	} else {
+		println("Everything is fine!")
+	}
+
+	# precondition loop
+	loop while theSkiIsBlue {
+		break
+	}
+
+	# postcondition loop
+	userInput = ""
+	loop {
+		userInput = input("How is your day?")		
+	} while userInput != "Great!!!"
+
+	# data structures
+	str[] strArray = Array["Alfa","Bravo","Charlie","Delta"]
+	i32[] i32List = List[0,1,2,3]
+	str:i32[] strToi32Map = Map["zero":0,"one":1,"two":2]
+
+	loop 
+	
+
+	
+	

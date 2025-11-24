@@ -1,0 +1,16 @@
+private val i32 var[5]; #declare a data strucutre that contains space for initially 5 i32s where additional space can be added# #DEFAULT: List#
+private val i32 val[5]; #declare a data strucutre that permanently contains space for only 5 i32s" "DEFAULT: Array#
+
+#Hashmaps#
+private val i32:str var[5]; #declare a map of i32 to str that contains a variable number of key value pairs begining with 5. 
+private val i32:str val[5]; #declare a map of i32 to str that contains only 5 key value pairs.
+
+private val i32        val[] array = [0,1,2,3,4] #this is an array of the values 0 to 4#
+private val i32        var[] list  = [0,1,2,3,4] #this is a list of the values 0 to four#
+private val <i32, str> var[] map   = ["zero":0,"one":1,"two":2,"three":3,"four":4] #this a map of the words to their integer for 0 to 4#
+
+#You can do this for custom data strucutres
+private val i32 var[]  linkedList = LinkedList[0,1,2,3,4]
+private val i32 val[5] linkedList2; #The linked list is said to have a maximum capacity of 5#
+
+

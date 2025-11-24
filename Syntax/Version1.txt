@@ -1,0 +1,173 @@
+--------------------------------------------------|--------------------------------------------------
+Main.main					  |Main.class
+	#const -> public static value#            |     #const -> public static value#
+	const f64 PI = 3.14159                    |	const f64 PI = 3.14159
+						  | 
+	#local field#                             |	#instance field#
+	str name				  |	public value str name
+						  |
+	#constructor#				  |     #constructor#
+	#specify valid terminal arguments#	  |	#specify valid object creation calls for Main#
+	constructor(this, str name):		  |	constructor(this, str name):
+		this.name = name		  |		this.name = name
+						  |
+	#local function#			  |	# Instance method (Getter)#
+	#completely redundant#			  |	#Redundant: name is public meaning it is accesed through main.name()#
+	str getName:			  	  | 	public value str getName: 
+		return name			  | 		#function is public, and cannot be overrided#
+						  | 		return name #name cannot be muttated by an outside class#
+	#similarily redundant#			  |	#similarily redundant#
+	void setName(this, str name):		  |	public value void setName(this, str name):
+		this.name = name		  |		this.name = name
+						  |
+	#static utility function#		  |	#static utility function#         #The block of this function is everything between ")" and the end of the line.#
+	public value int add(i32 a, i32 b) a + b  | 	public value int add(i32 a, i32 b) a + b #understood as return a + b#
+						  |
+	
+	#omit public value for the Main.main side
+	public value void showDemo(this):
+		i32 x = 5
+		f64 y = 2.5
+		bit flag = true
+
+		if (flag and x > 3):
+				#This is safe because string interpretation is non recursive#
+				#str name = "bob"#
+				#str fBob = "{name}" prints bob#
+				#str ffBob = "{fBob}" prints "{name}"#
+			println("{name} says: x is greater than 3!")
+		else println(" Conditions not met.")
+		
+		#Loop statement#
+		#also an enhanced for loop#
+		#interval notation this would print "1 and 2"#
+		for (i32 i in (0,3)) println("Loop iteration: {i}")
+		
+		#While loop
+		i32 counter = 0
+		#precondition#
+		while (counter < 2):
+			println("Counter = {counter}")
+			counter++
+		#post condition#
+		counter = 0
+		dowhile (counter < 2):
+			println("Counter = {counter}")
+			counter++
+		
+		#Switch statement#
+		switch (x):
+			i32: println("{x] is an i32")
+			5: println("{x} is 5")
+			#both of thee above can be true at the same time. Compiled toguether#
+			6: 7 #if x was seven then this switch returns 7#
+			default: 69 	
+		#println(switch(2)) -> prints "2 is an i32\nNone\n"#
+		#println(switch("2")) -> prints "69\n" 
+		#println(switch(5)) -> ptints "5 is an i32\n5 is 5\nNone\n"
+		#println(switch(6)) -> prints "6 is an i32\n7\n"
+		#this is a cursed example#
+						  |
+	#This file was is the entry point#	  | 	#This will never be treated by as an entry point, can be envoked from a File.main#
+	#lang Main.main "viffx"			  |	public value void main(str[] args):
+	println(getName()) #prints "viffx\n"	  |		Main demo = new Main("vifx")
+	println("2 + 3 = {add(2,3)}") #prints 5\n#|	
+						  |		println("Hello, {demo.getName()}!")
+	showDemo()				  |		println("2 + 3 = {add(2,3)}")
+						  |
+						  |		demo.showDemo()
+
+Color.enum
+	RED, GREEN, BLUE, OTHER(i32,i32,i32)
+DataStructure.struct
+	constructor(str)
+	
+Record<i32 x, i32y> point = (5,5)
+private toString(Record<i32 x, i32 y> point): "({x}, {y})"
+println(point.toString())
+
+str text = "hello"
+private padStr(str input, i32 len):
+	padding = len - str.length()
+	leftPad = padding / 2
+	rightPad = padding - leftPad
+	return " ".repeat(leftPad) + input + " ".repeat(rightPad)
+			      #        0123456789
+println(text.padStr(10)) #prints "  hello   "#
+
+Entity.class
+	private val str name
+	private var i32 health = 10
+	private var i32 dammage = 2
+
+	constructor(str name):
+		this.name = name
+
+	public val fight(Entity attacker, Entity defender):
+		defender.health -= attacker.dammage
+
+	public val toString(this) "{name} has {10} health and does {dammage} dammage"
+
+Main.main
+	import Entity
+
+	Entity bob = new Entity("Bob")
+	Entity jeff = new Entity("Jeff")
+
+	println(bob)  
+
+	println(jeff) 
+
+	bob.fight(jeff)
+
+	Entity.fight(jeff,bob)
+	
+	println(Entity.toString(bob))
+
+	println(Entity.toString(jeff))
+
+	#OUTPUT:
+	*Bob has 10 health and does 2 dammage
+	*Jeff has 1- health and does 2 dammage
+	*Bob has 8 health and does 2 dammage
+	*Jeff has 8 health and does 2 dammage#
+
+	# <-- comment --> #
+
+public val  
+public var
+private val
+private var
+
+public -> you can use it in other files
+val -> you can't overide the function
+var -> you can overide the function
+
+Point.class
+	private val i32 x
+	private val i32 y
+	
+	# this is a function #
+	public val toString(this):
+		print("({this.x}, {this.y})")
+
+	# but it can be used as a method #	
+	function:
+		a function in programing that like it doesn't mutate anything
+	method
+		method does
+
+	object.method()
+	
+	function(object)
+
+private val foo(i32* x, human* jeff):
+	# what that means is this function has the intent to mutate x, and mutate jeff
+
+foo(&x, &jeff)
+
+private val bar(i32 x):
+	i32 y = x + 5
+	return y
+
+# the compiler understands that y should actually be allocated in the callers scope #

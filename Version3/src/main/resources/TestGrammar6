@@ -1,0 +1,7 @@
+START > format;
+format > ID() formatArgument;
+formatArgument > SYM(<) arguments SYM(>) | EPSILON();
+arguments       > argumentGroup SYM(;) arguments
+                | argumentGroup;
+argumentGroup   > format SYM(,) argumentGroup
+                | format;

@@ -1,0 +1,6 @@
+# rust does the thing you were thinking about #
+# everything is allocated on the stack #
+# when you need to use the heap, a pointer to the heap is stored on the stack #
+# when that pointer goes out of scope then, the object on the heap is also freed #
+
+

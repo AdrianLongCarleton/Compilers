@@ -1,0 +1,115 @@
+int* make_heap_value() {
+	int *x = malloc(sizeof(int));
+	*x = 42;
+	return x;
+}
+int problem1() {
+	int *p = make_heap_value();
+	printf("%d\n", *p);
+	// forgot to free(p)
+	return 0;
+}
+int problem2() {
+	int *p = make_heap_value();
+	int *q = p; // q is an alias for p
+	// forgot to free(p) 
+}
+int problem3() {
+	int *p = make_heap_value();
+	int *q = make_heap_value();
+	// forgot to free(p)
+	p = q // the pointer p is reasigned to q
+	// forgot to free(p) which is really free(q)
+}
+// rules to solve problems 1, 2, 3
+// 1. When an pointer goes out of scope the heap it points to is freed
+// 2. An alias is not a pointer
+// 	a) an alias will never free the heap of the pointer it is aliasing
+// 3. When a "original pointer = replacement pointer" event occurs,
+//	then the heap that the original pointer pointed to is freed,
+//	and the replacement pointer is now an alias to the original pointer
+//example.class
+private val make_heap_value() {
+	i32 *x = 42 // allocate 42 on the heap
+	i32 *y = x  // alias y to x
+	return y    // return pointer to heap value
+}
+problem1() {
+	int *p = make_heap_value();
+	printf("%d\n", *p);
+	return 0;
+	// implicit free(p) freeing the value of 42 on the heap
+}
+problem2() {
+	int *p = make_heap_value();
+	int *q = p; // never free aliases
+	// implicit free(p) freeing the value of 42 on the heap
+}
+problem3() {
+	int *p = make_heap_value();
+	int *q = make_heap_value();
+	// implicit free(p) freeing the value of 42 on the heap
+	p = q // reassign ownership to q
+	// implicit free(p) freeing the value of 42 on the heap
+	
+	// q is now an alias for p
+}
+
+void rules() {
+	int *a = 42   // allocate 42 on the heap
+	int b = 43    // allocate 43 on the stack
+
+	int *p = a    // allocate 42 on the heap
+	int *q = b    // q is an alias for b
+	int **r = a   // r is an alias for a, specifically r points the pointer a in this scope
+
+	*p = 44       // mutate the heap poined to by p
+	*q = 45       // mutate stack variable b through alias 
+	*r = 46	      // mutate the heap pointed to by a
+	
+	// free(a)
+	// free(p)
+}
+
+void rulesForAliases() {
+	int pointer a = 42   // allocate 42 on the heap
+	int b = 43    // allocate 43 on the stack
+
+	int pointer p = a    // p is an alias for a
+	int pointer q = b    // q is an alias for b
+
+	deref p = 44       // mutate the heap pointed to by a, through alias p
+	deref q = 45       // mutate stack variable b through alias q
+
+	// break alias status by:
+	p = 46        // allocate 46 on the heap (new ownership for p)
+	// or
+	int c = 5
+	q = addressof c        // reassign q to alias new stack variable c
+}
+// fuck it we support both
+
+int* make_heap_value() {
+	int *x = malloc(sizeof(int));
+	*x = 42;
+	return x;
+}
+int problem1() {
+	int *p = make_heap_value();
+	printf("%d\n", *p);
+	// forgot to free(p)
+	return 0;
+}
+int problem2() {
+	int *p = make_heap_value();
+	int *q = p; // q is an alias for p
+	// forgot to free(p) 
+}
+int problem3() {
+	int *p = make_heap_value();
+	int *q = make_heap_value();
+	// forgot to free(p)
+	p = q // the pointer p is reasigned to q
+	// forgot to free(p) which is really free(q)
+}
+

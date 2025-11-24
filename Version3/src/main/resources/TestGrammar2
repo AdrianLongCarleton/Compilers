@@ -1,0 +1,3 @@
+START > S;
+S > H H;
+H > SYM(c) H | SYM(d);

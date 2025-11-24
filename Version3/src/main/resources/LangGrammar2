@@ -1,0 +1,11 @@
+START > modifiers;
+scope > ID(static) | instance;
+instance > ID(inst) | ID(instance);
+scopeOrEpsilon > scope | EPSILON();
+mutability > variable | value;
+variable > ID(var) | ID(variable);
+value > ID(val) | ID(value);
+synchronous > ID(sync) | ID(synchronized);
+asynchronicity > ID(async) | ID(asynchronous) | EPSILON();
+synchronicity > synchronous | asynchronicity;
+modifiers > ID(exposed) asynchronicity scope mutability | synchronicity scopeOrEpsilon mutability;

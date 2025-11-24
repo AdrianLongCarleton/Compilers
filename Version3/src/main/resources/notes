@@ -1,0 +1,71 @@
+<publicity> <ownership> <mutability> <keyword> <format> <identifier> <logic>
+
+<publicity>
+    #Defines whether a variable can be changed:#
+    public          #a member (variable or method) can be accessed from any other class, regardless of the package it belongs to#
+    private         #a member (variable or method) cannot be accessed from any other class#
+<mutability>
+    #Defines whether a member can be changed:#
+    var             #short for variable#
+    variable        #a member (variable or method) can be modified#
+    val             #short for value#
+    value           #a member (variable or method) can not be modified#
+    alias           #adds an additional name for a member (variable or method)#
+<ownership>
+    #Defines how the member is scoped:#
+    static          #a member (variable or method) belongs to the class itself rather than to any specific instance of that class#
+    scope           #a member (variable or method) belongs to the code block that it is contained in#
+    inst            #short for instance#
+    instance        #every instance of the class for each member (variable or method) with this tag has it's own instance of the member#
+<concurrencyModifier>
+    #Modifiers that affect behavior:#
+    sync            #short for synchronized#
+    synchronized    #tells the compiler/interpreter that a member (variable or method) is to be synchronized for multithreading#
+    async           #short for asynchronous#
+    asynchronous    #used for functions that creates a new thread for it's associated code to run on when created#
+<format>
+    #specifics tbd. In general #
+<identifier>
+    #@ before letters and number always indicates that a token is an identifier#
+    #else any sequence of letters and numbers that begins with a letter is an identifier#
+<argument>
+    #(<label> <identifier>,<label> <identifier>,<label> <identifier>,...)#
+    #A group of types enclosed in a set of circle braces and separated by commas#
+    #the <identifier> parts can have three dots "..." added to the end to make it a vararg.#
+    #The one rule here is that no vararg can be followed by a vararg of the same type#
+    #or a <identifier> of the same type#
+<function>
+    #Any code enclosed in a block. A block is indicating using indents#
+<assignment>
+    #An equal sign followed by an expression#
+<expression>
+    #Math shit#
+<label>
+    <identifier> <symbol(:)> <symbol(=)>#
+<logic>
+    <function>
+    <assignment>
+<accessModifiers>
+    <publicity> <ownership> <mutability>
+<modifier>
+    <accessModifiers>
+    <concurrencyModifier>
+<modifier> <format> <identifier> <logic>
+<format>
+    <data format>
+    <data format> <return type>
+<data format>
+    <data structure>
+    <data type>
+
+STMT  				> IMPORT
+				| IF
+				| WHILE
+				| SWITCH
+				| FOR
+				| RETURN
+				| ASSIGNMENT
+				| CONSTRUCTOR
+				| FUNC_CALL
+				| FUNC_DECL
+				;

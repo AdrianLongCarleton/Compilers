@@ -1,0 +1,5 @@
+START           > arguments;
+arguments       > argumentGroup SYM(;) arguments
+                | argumentGroup;
+argumentGroup   > ID() SYM(,) argumentGroup
+                | ID();

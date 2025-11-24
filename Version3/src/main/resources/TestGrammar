@@ -1,0 +1,4 @@
+START > S;
+S > L SYM(=) R | R;
+L > SYM(*) R | NUM();
+R > L;
