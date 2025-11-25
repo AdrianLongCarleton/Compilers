@@ -1,4 +1,6 @@
 HelloWorld.main
+	import random
+	
 	println("Hello World")
 	
 	#variables#
@@ -11,6 +13,13 @@ HelloWorld.main
 	
 	#contants#
 	val bool theSkyIsBlue = true
+
+	#tuples
+	(str,i32) arbitraryTuple = ("Hello",5)
+	(i32 x, i32 y) point = (0, 5)
+
+	println(arbitrayTuple.0) #prints 5#
+	println(point.x) #prints 0#
 
 	#foo's type is implicitly i32#
 	foo = 5 + 5
@@ -40,8 +49,53 @@ HelloWorld.main
 	i32[] i32List = List[0,1,2,3]
 	str:i32[] strToi32Map = Map["zero":0,"one":1,"two":2]
 
-	loop 
+	loop str key : strToi32Map {
+		print("{key} {strToi32Map[key]}, ")
+	}
+	loop i32 i : [0,10) {
+		print(i)
+	}
+	#prints 0123456789#
 	
+	#lamda#
+	val lambda f = (i32 x) {
+		return x + 5
+	}
+	
+	#function#
+	val foo(i32 x) {
+		return x + 10
+	}
+	#or
+	val foo(i32 x) x + 10
+	#
+
+	#return types are implicit#
+	
+	#In the .main file everything is defined locally. Calling Main.foo() would be illegal#
+	
+	#Exceptions
+	* throw new Exception("Something went horibly wrong")
+	#
+
+	val div(i32 x, i32 y) {
+		throw new Exception("DIV0") if y == 0
+		return x / y
+	}
+
+	#can't do
+	i32 myVariable = div(5,0)
+	
+	the compiler won't allow it because div does not return an i32
+	#
+
+	i32 myVariable = match div(5,0) {
+		Exception e -> throw e
+		i32 result -> result
+	}
+	
+
+
 
 	
 	

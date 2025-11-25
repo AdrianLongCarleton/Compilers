@@ -79,7 +79,8 @@ HelloWorld.main
 	#
 
 	val div(i32 x, i32 y) {
-		throw new Exception("DIV0") if y == 0
+		#control flow statements: <statement> <arguments> <optional if condition>#
+		return new Exception("DIV0") if y == 0
 		return x / y
 	}
 
@@ -93,9 +94,18 @@ HelloWorld.main
 		Exception e -> throw e
 		i32 result -> result
 	}
-	
 
+	#labels#
+	i32 count = 0
+	label 0
+	count++
+	print(count)
+	goto 0 if count < 5	
 
-
-	
+Node.data
+	val Type type
+	public val constructor(Type type) {
+		this.type = type
+	}
+	val HeapPtr<Node> next
 	
