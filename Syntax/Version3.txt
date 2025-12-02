@@ -75,7 +75,7 @@ HelloWorld.main
 	#In the .main file everything is defined locally. Calling Main.foo() would be illegal#
 	
 	#Exceptions
-	* throw new Exception("Something went horibly wrong")
+	* return new Exception("Something went horibly wrong")
 	#
 
 	val div(i32 x, i32 y) {
@@ -91,7 +91,7 @@ HelloWorld.main
 	#
 
 	i32 myVariable = match div(5,0) {
-		Exception e -> throw e
+		Exception e -> return e
 		i32 result -> result
 	}
 
