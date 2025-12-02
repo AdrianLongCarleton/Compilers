@@ -1,4 +1,4 @@
-package com.viffx.Lang.Automata;
+package com.viffx.Lang.Compiler;
 
 public record Item(int index, int dot, Integer lookahead) {
     public Item core() {

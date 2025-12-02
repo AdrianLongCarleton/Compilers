@@ -169,7 +169,7 @@ public class LALR1 {
             }
         }
 
-        return data;
+         return data;
     }
     public List<HashMap<Integer,Action>> generate() {
         if (actions != null) return actions;
@@ -452,13 +452,5 @@ public class LALR1 {
         public String toReadable(Grammar g) {
             return "I" + state + ": " + g.toString(item);
         }
-
-        @Override
-            public String toString() {
-                return "SignedItem[" +
-                        "state=" + state + ", " +
-                        "item=" + item + ']';
-            }
-
     }
 }

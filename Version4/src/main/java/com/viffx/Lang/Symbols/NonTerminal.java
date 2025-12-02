@@ -6,11 +6,6 @@ public record NonTerminal(String value) implements Symbol {
     public static final NonTerminal START = new NonTerminal("START");
 
     @Override
-    public SymbolType type() {
-        return SymbolType.NON_TERMINAL;
-    }
-
-    @Override
     public String toString() {
         return value;
     }
@@ -19,18 +14,4 @@ public record NonTerminal(String value) implements Symbol {
     public String value() {
         return value;
     }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (obj == this) return true;
-        if (obj == null || obj.getClass() != this.getClass()) return false;
-        var that = (NonTerminal) obj;
-        return Objects.equals(this.value, that.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(value);
-    }
-
 }

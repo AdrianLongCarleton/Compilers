@@ -3,21 +3,12 @@ package com.viffx.Lang.Symbols;
 public enum SymbolType {
     EPSILON,
     ID,
-    ANY,
-    NUM, // a series of digits ex: 1234
-    SYM, // a
+    KEY,
+    NUM,
+    SYM,
     CHR,
     STR,
-    TERMINAL,
-    NON_TERMINAL,
-    SYMBOL,
-    LEX_SYMBOL,
-    COMMENT,
-    INDENT,
-    DEDENT,
-    EOR,
-    EOF,  // Enf Of File
+    EOF,
     TEST,
-    END,
-
+    COMMENT,
 }

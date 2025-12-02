@@ -1,8 +1,10 @@
 package com.viffx.Lang.Grammar;
 
-import com.viffx.Lang.Automata.Item;
+import com.viffx.Lang.Compiler.Item;
+import com.viffx.Lang.Symbols.NonTerminal;
 import com.viffx.Lang.Symbols.Symbol;
 import com.viffx.Lang.Symbols.SymbolType;
+import com.viffx.Lang.Symbols.Terminal;
 import com.viffx.Lang.Utils.LexicalCharacterBuffer;
 
 import java.io.IOException;
@@ -12,6 +14,37 @@ import java.util.function.Consumer;
 import static java.lang.Character.isLetterOrDigit;
 import static java.lang.Character.isWhitespace;
 
+/* Static Factory
+ * load(String filePath)
+ *
+ * Item & Production Utilities
+ * atEnd(Item item)
+ * symbol(Item item)
+ * beta(Item item)
+ * toString(Item item)
+ * toString(Production production)
+ *
+ * Symbol Access
+ * symbol(int symbol)
+ * isNonTerminal(int symbol)
+ * symbolsCount()
+ * forEachSymbol(Consumer<Symbol> consumer)
+ * forEachNonTerminal(Consumer<Integer> consumer)
+ * getKeywords()
+ *
+ * Production Access
+ * production(int production)
+ * productionsCount()
+ * forEachProduction(Consumer<Production> consumer)
+ * forEachProduction(int nonTerminal, Consumer<Integer> consumer)
+ * productionRanges(int nonTerminal)
+ *
+ * Special Symbols
+ * EPSILON()
+ * EOF()
+ * TEST()
+ * START()
+ */
 public class Grammar {
     // ====== INSTANCE FIELDS ====== //
     // Symbols fields
@@ -19,12 +52,13 @@ public class Grammar {
     private final Symbol[] symbols;
     private final boolean[] isNonTerminal;
     private final int[] nonTerminals;
+    private final Set<String> keywords;
     private int EPSILON;
     private int EOF;
     private int TEST;
     private int START;
 
-    // Productions fields
+    // Production fields
     private final List<int[]> productionRanges = new ArrayList<>();
     private final List<Production> productions = new ArrayList<>();
 
@@ -43,6 +77,7 @@ public class Grammar {
         symbols = symbolProcessingResult.symbols;
         isNonTerminal = symbolProcessingResult.isNonTerminal;
         nonTerminals = symbolProcessingResult.nonTerminals;
+        keywords = Collections.unmodifiableSet(symbolProcessingResult.keywords);
 
         checkForUndefinedNonTerminals(parseResult);
 
@@ -82,7 +117,7 @@ public class Grammar {
     // Items
 
     /**
-     * Returns if the the input {@code item} is at or beyond the end of the production it references
+     * Returns if the input {@code item} is at or beyond the end of the production it references
      *
      * @param item the grammar item whose dot position is inspected
      * @return if the item's dot is at or beyond the end of the production it references
@@ -90,7 +125,7 @@ public class Grammar {
      */
     public boolean atEnd(Item item) {
         Objects.requireNonNull(item, "item cannot be null");
-        return item.dot() >= productions.get(item.index()).size();
+        return productions.get(item.index()).atEnd(item.dot());
     }
 
     /**
@@ -269,9 +304,11 @@ public class Grammar {
      *
      * @return the number of symbols in the grammar
      */
-    public int symbolsSize() {
+    public int symbolCount() {
         return symbols.length;
     }
+
+
 
     /**
      * Applies the given {@link Consumer} action to each symbol in the grammar.
@@ -318,7 +355,7 @@ public class Grammar {
      *
      * @return the number of productions
      */
-    public int productionsSize() {
+    public int productionsCount() {
         return productions.size();
     }
 
@@ -420,6 +457,14 @@ public class Grammar {
         return START;
     }
 
+    /**
+     * Retrieves the set of keywords associated with this object.
+     *
+     * @return a set of strings representing the keywords. If no keywords are available, returns an empty set.
+     */
+    public Set<String> getKeywords() {
+        return keywords;
+    }
 
 
     // Public API helper methods
@@ -437,7 +482,7 @@ public class Grammar {
 
     // ====== INTERNAL DATA TYPES ====== //
     private record ParseResult(HashMap<Token,Integer> symbolsMap, HashSet<Token> defined) {}
-    private record SymbolProcessingResult(Symbol[] symbols, boolean[] isNonTerminal, int[] nonTerminals) {}
+    private record SymbolProcessingResult(Symbol[] symbols, boolean[] isNonTerminal, int[] nonTerminals, Set<String> keywords) {}
 
     // ====== PARSING METHODS ====== //
 
@@ -452,7 +497,7 @@ public class Grammar {
             if (lexer.eof()) break;
 
             // parse a rule
-            defined.add(parseRule(symbols));
+            parseRule(symbols,defined);
         }
         return new ParseResult(symbols,defined);
     }
@@ -466,12 +511,12 @@ public class Grammar {
      *   <li>A list of {@code productions}, where each production is represented as a list of integer symbol indices.</li>
      *   <li>A list of {@code productionRanges}, mapping each non-terminal to a range of production indices.</li>
      * </ul>
-     *
+     * <p>
      * This method processes input in the form:
      * <pre>
      *   NonTerminal1 > NonTerminal2 Terminal1(1) | NonTerminal3;
      * </pre>
-     *
+     * <p>
      * And compiles it into the following internal structures:
      * <p>
      * <b>symbolsMap:</b>
@@ -502,10 +547,9 @@ public class Grammar {
      * </ul>
      *
      * @param symbols a map tracking all defined symbols, associating each {@link Token} with a unique integer ID
-     * @return the {@link Token} representing the left-hand side (LHS) non-terminal of the parsed rule
      * @throws IOException if the grammar rule is malformed, violates constraints, or the file ends unexpectedly
      */
-    private Token parseRule(HashMap<Token,Integer> symbols) throws IOException {
+    private void parseRule(HashMap<Token,Integer> symbols, HashSet<Token> defined) throws IOException {
         // update and reset parsing state
         numRules++;
         currentRule.clear();
@@ -516,12 +560,11 @@ public class Grammar {
             if (startDefined) throw new IOException(errorContext() +"The NonTerminal START can only be defined once.");
             startDefined = true;
         }
-        if (symbols.containsKey(leftHandSide)) throw new IOException(errorContext() + "nonTerminal: " + leftHandSide + " is already defined");
+        if (!defined.add(leftHandSide)) throw new IOException(errorContext() + "nonTerminal: " + leftHandSide + " is already defined");
 
         currentRule.add(leftHandSide);
         // register it
-        int id = symbols.size();
-        symbols.put(leftHandSide,id);
+        int id = symbols.computeIfAbsent(leftHandSide, _ -> symbols.size());
 
         // parse some syntax
         expect(">",TokenType.SYMBOL);
@@ -548,7 +591,7 @@ public class Grammar {
                 throw new IOException(errorContext() + "The NonTerminal START cannot be part of any right hand side.");
             }
 
-            // get the integer that represent the current token
+            // get the integer that represents the current token
             id = symbols.computeIfAbsent(current,_ -> symbols.size());
 
             // append the symbol id to the end of the current production
@@ -556,13 +599,17 @@ public class Grammar {
 
             // advance to the next token
             current = next();
+            if (current.symbol() instanceof Terminal t && t.type() == SymbolType.EPSILON) {
+                expect(";",TokenType.SYMBOL);
+                break;
+            }
             currentRule.add(current);
             TokenType type = current.type();
 
             if (Objects.requireNonNull(type) == TokenType.EOF) throw new IOException(errorContext() + "Reached end of file while defining a non terminal");
             if (type != TokenType.SYMBOL) continue;
 
-            // A ";", ">" or a "|" has been detected meaning that a change of state is required
+            // A ";", ">" or a "|" has been detected, meaning that a change of state is required
 
             // The current production is terminated
             // Begin a new production for id
@@ -579,11 +626,11 @@ public class Grammar {
                     throw new IOException(errorContext() + "MISSING SEMICOLON");
                 case "|": // A new production is being defined for lhs, continue parsing
                     current = next(); // absorb the grammar symbol
-                    currentRule.add(current);
+                    currentRule.add(current); // WHY???!!!
             }
         }
 
-        // record the productionRange for the left hand side
+        // record the productionRange for the left-hand side
         int to = productions.size();
 
         if (Token.START.equals(leftHandSide)) {
@@ -593,35 +640,38 @@ public class Grammar {
 
         productionRanges.add(new int[]{from,to});
 
-        return leftHandSide;
     }
 
     // ====== SYMBOL FINALIZATION ====== //
     // register special symbols and finalize the symbols data structure by reducing them to arrays
     private SymbolProcessingResult processSymbols(HashMap<Token,Integer> symbolsMap) {
-        EPSILON = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,"EPSILON,null"),_ -> symbolsMap.size());
-        TEST = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,"TEST,#"), _ -> symbolsMap.size());
-        EOF = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,"EOF,$"), _ -> symbolsMap.size());
+        EPSILON = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.EPSILON,"null")),_ -> symbolsMap.size());
+        TEST = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.TEST,"#")), _ -> symbolsMap.size());
+        EOF = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.EOF,"$")), _ -> symbolsMap.size());
 
         Symbol[] symbols = new Symbol[symbolsMap.size()];
         boolean[] isNonTerminal = new boolean[symbolsMap.size()];
         int[] nonTerminals = new int[symbolsMap.size()];
+        Set<String> keywords = new HashSet<>();
         int nonTerminalCount = 0;
         for (Token token : symbolsMap.keySet()) {
             int index = symbolsMap.get(token);
-            Symbol symbol = token.decompose();
+            Symbol symbol = token.symbol();
             symbols[index] = symbol;
             isNonTerminal[index] = token.type().equals(TokenType.NON_TERMINAL);
             if (isNonTerminal[index]) {
                 nonTerminals[nonTerminalCount++] = index;
                 if (symbol.value().equals("START")) START = index;
             }
+            if (symbol instanceof Terminal t && t.type().equals(SymbolType.KEY)) {
+                keywords.add(symbol.value());
+            }
         }
 
         // shorten the nonTerminals array to the propper length
         System.arraycopy(nonTerminals, 0, nonTerminals, 0, nonTerminalCount);
 
-        return new SymbolProcessingResult(symbols,isNonTerminal,nonTerminals);
+        return new SymbolProcessingResult(symbols,isNonTerminal,nonTerminals, keywords);
     }
     // find all used non-terminals that are not defined and notify the user
     private void checkForUndefinedNonTerminals(ParseResult parseResult) {
@@ -663,7 +713,7 @@ public class Grammar {
         if (!isLetterOrDigit(c)) {
             lexer.nextChar();
             return switch (c) {
-                case '>', '|', ';' -> new Token(TokenType.SYMBOL, String.valueOf(c));
+                case '>', '|', ';' -> new Token(TokenType.SYMBOL, new NonTerminal(String.valueOf(c)));
                 default -> throw new IOException(errorContext() + " unknown symbol: " + c);
             };
         }
@@ -679,7 +729,7 @@ public class Grammar {
         // if it's a terminal then the name is the value of the non-terminal
         // else it's the type of the terminal
         if (lexer.eof() || lexer.crntChar() != '(')
-            return new Token(TokenType.NON_TERMINAL,builder.toString());
+            return new Token(TokenType.NON_TERMINAL,new NonTerminal(builder.toString()));
 
         // Check that the user entered a valid type name
         SymbolType type;
@@ -708,7 +758,7 @@ public class Grammar {
 
         // consume the closing bracket
         lexer.nextChar();
-        return new Token(TokenType.TERMINAL,type + "," + value);
+        return new Token(TokenType.TERMINAL,new Terminal(type, value));
     }
     private Token expect(String expectedValue, TokenType... types) throws IOException {
         StringBuilder errorMessage = new StringBuilder();

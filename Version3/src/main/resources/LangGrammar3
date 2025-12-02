@@ -3,5 +3,5 @@ statements > statement SYM(;) statements | EPSILON();
 statement > import_statement | declaration_statement;
 declaration_statement > modifiers ID();
 modifiers > ID(public) | ID(public) | EPSILON();
-import_statement > KEY(import) str_or_id;
+import_statement > ID(import) str_or_id;
 str_or_id > STR() | ID();
