@@ -8,13 +8,14 @@ import com.viffx.Lang.Symbols.Symbol;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class Parser {
+public class LALR1ParseTableGenerator {
     //[INSTANCE_FIELDS]
     private final Grammar grammar;
     private final HashMap<Integer,Set<Integer>> derivations;
     private final HashMap<Integer,Set<Integer>> firstSets;
+    private final Set<Integer> nullable;
     //[CONSTRUCTORS]
-    public Parser(Grammar grammar) {
+    public LALR1ParseTableGenerator(Grammar grammar) {
         this.grammar = grammar;
 
         HashMap<Integer,Set<Integer>> derivations = new HashMap<>(grammar.symbolCount());
@@ -27,6 +28,12 @@ public class Parser {
         // Advance the dots over all nullable non-terminals
         // The symbol after the dot will either be out of bounds or in front of a terminal
         // Use this to calculate the first sets
+        // START > S;
+        // S > A * C
+        // A > * B
+        // A > * EPSILON();
+        // B > * D
+        // C > * c;
         boolean change;
         do {
             change = false;
@@ -54,12 +61,18 @@ public class Parser {
             for (int j = 0; j < dots[i]; j++) {
                 reachable.add(production.get(j));
             }
+            if (!production.atEnd(dots[i]) && grammar.isNonTerminal(production.get(dots[i]))) {
+                reachable.add(production.get(dots[i]));
+            }
 
             // first sets
             // after the dot the production must either be at the end or in front of a terminal
-            if (production.atEnd(dots[i])) continue;
+
             Set<Integer> firstSet = firstSets.computeIfAbsent(lhs, _ -> new HashSet<>());
-            firstSet.add(production.get(dots[i]));
+            if (production.atEnd(dots[i])) continue;
+            Integer symbol = production.get(dots[i]);
+            if (grammar.isNonTerminal(symbol)) continue;
+            firstSet.add(symbol);
         }
 
         // Propagate reachability
@@ -67,17 +80,43 @@ public class Parser {
             change = false;
             for (int sourceNonTerminal : derivations.keySet()) {
                 Set<Integer> derivationsOfSource = derivations.get(sourceNonTerminal);
-                for (int targetNonTerminal : derivations.get(sourceNonTerminal)) {
+                // Create a copy of the set to iterate over to prevent ConcurrentModificationException
+                List<Integer> currentDerivations = new ArrayList<>(derivationsOfSource);
+                for (int targetNonTerminal : currentDerivations) {
                     if (sourceNonTerminal == targetNonTerminal) continue;
-                    Set<Integer> set = derivations.get(targetNonTerminal);
-                    assert set != null;
-                    change |= set.addAll(derivationsOfSource);
+                    Set<Integer> derivationsOfTarget = derivations.get(targetNonTerminal);
+                    assert derivationsOfTarget != null;
+                    change |= derivationsOfSource.addAll(derivationsOfTarget);
+                    firstSets.get(sourceNonTerminal).addAll(firstSets.get(targetNonTerminal));
                 }
             }
         } while (change);
 
+        System.out.println(derivations
+                .keySet()
+                .stream()
+                .map(
+                        key -> grammar.symbol(key) + " => " +
+                                derivations.get(key)
+                                        .stream()
+                                        .map(grammar::symbol)
+                                        .toList()
+                ).collect(Collectors.joining("\n")));
+        System.out.println(firstSets
+                .keySet()
+                .stream()
+                .map(
+                        key -> grammar.symbol(key) + " => " +
+                                firstSets.get(key)
+                                        .stream()
+                                        .map(grammar::symbol)
+                                        .toList()
+                ).collect(Collectors.joining("\n")));
+//        System.out.println("FENCE1");
+
         this.derivations = derivations;
         this.firstSets = firstSets;
+        this.nullable = nullable;
     }
 
     //[INTERNAL_DATATYPES]
@@ -105,15 +144,18 @@ public class Parser {
             Set<Integer> first = new HashSet<>();
             if (X instanceof NonTerminal _) {
                 first.addAll(firstSets.get(I));
-                nullable = first.contains(grammar.EPSILON());
+                nullable = this.nullable.contains(I);
             } else {
                 first.add(I);
                 nullable = I == grammar.EPSILON();
             }
             first.remove(grammar.EPSILON());
             terminals.addAll(first);
-            if (!nullable) break;
-            if (i + 1 == symbols.size()) terminals.add(grammar.EPSILON());
+            if (nullable) {
+                if (i + 1 == symbols.size()) terminals.add(grammar.EPSILON());
+                continue;
+            }
+            break;
         }
 
         return terminals;
@@ -123,25 +165,46 @@ public class Parser {
         Queue<Item> queue = new LinkedList<>(I);
         while (!queue.isEmpty()) {
             Item item = queue.poll();
-            assert item != null;
-            Integer nt = grammar.symbol(item);
-            if (grammar.isNonTerminal(nt)) {
+
+            if (grammar.atEnd(item)) continue;
+
+            Integer B = grammar.symbol(item);
+
+            if (grammar.isNonTerminal(B)) {
                 // Step 1: Get beta (symbols after B in the current production)
-                List<Integer> beta = grammar.beta(item);
-                beta.add(item.lookahead()); // this becomes βa
-                Set<Integer> first = first(beta);
-                grammar.forEachProduction(nt, index -> {
-                    for (Integer t : first) {
+                // Step 1: Get beta (symbols after B in the current production)
+                List<Integer> beta = grammar.beta(item);   // β
+
+                // Step 2: Compute FIRST(β)
+                Set<Integer> firstBeta = first(beta);
+
+                // Step 3: Compute FIRST(βa)
+                Set<Integer> firstBetaA = new LinkedHashSet<>();
+
+                // FIRST(β) minus epsilon
+                for (int t : firstBeta) {
+                    if (t != grammar.EPSILON())
+                        firstBetaA.add(t);
+                }
+
+                // If β derives epsilon, include FIRST(a) = {a}
+                if (firstBeta.contains(grammar.EPSILON()) || beta.isEmpty()) {
+                    firstBetaA.add(item.lookahead());
+                }
+
+                // Iterate over the production index range for the given non-terminal
+                grammar.forEachProduction(B, index -> {
+                    for (Integer t : firstBetaA) {
                         Item newItem = new Item(index,0,t);
                         if(!J.add(newItem)) continue;
                         queue.add(newItem);
+                        System.out.println(grammar.symbol(t));
                     }
                 });
             }
         }
         return J;
     }
-
     //[PUBLIC_METHODS]
     public List<HashMap<Integer,Action>> generate() {
         HashMap<SignedItem, Set<Integer>> spontaneous = new HashMap<>();
@@ -155,6 +218,7 @@ public class Parser {
 
         List<HashMap<Integer,Action>> actions = calculateParseTable(lookaheads,transitions);
 
+        System.out.println("Channels:");
         printChannels(spontaneous, propagated);
         printLookaheads(lookaheads);
         printTransitions(transitions);
@@ -168,16 +232,7 @@ public class Parser {
         Item startItem = new Item(grammar.START(), 0, null);
 
         // 2. Supporting grammar data
-        System.out.println(derivations
-                .keySet()
-                .stream()
-                .map(
-                        key -> grammar.symbol(key) + " => " +
-                                derivations.get(key)
-                                        .stream()
-                                        .map(grammar::symbol)
-                                        .toList()
-                ).collect(Collectors.joining("\n")));
+
         int symbolCount = grammar.symbolCount();
 
         // 3. State machine bookkeeping
@@ -204,18 +259,26 @@ public class Parser {
         }
     }
 
-    private int expandItems(HashMap<Integer, int[]> transitions, Set<Item> state, HashMap<Integer,Set<Integer>> derivations, Map<Set<Item>, Integer> stateToId, Queue<Set<Item>> queue, int stateId, int[] transitionTable, int fromState) {
+       private int expandItems(HashMap<Integer, int[]> transitions, Set<Item> state, HashMap<Integer,Set<Integer>> derivations, Map<Set<Item>, Integer> stateToId, Queue<Set<Item>> queue, int stateId, int[] transitionTable, int fromState) {
+        HashMap<Integer, Set<Item>> allGotos = new HashMap<>();
+
         for (Item item : state) {
             // Only expand items where the dot is not at the end
             if (grammar.atEnd(item)) continue;
+
+            System.out.println("\t"+grammar.toString(item));
             // Advance the dot to build a candidate successor kernel
             Integer gotoSymbol = grammar.symbol(item);
-            HashMap<Integer, Set<Item>> gotos = new HashMap<>();
-            gotos.computeIfAbsent(gotoSymbol, _ -> new HashSet<>()).add(item.advance());
-            if (grammar.isNonTerminal(gotoSymbol)) calculateGotos(derivations.get(gotoSymbol), gotos);
-            stateId = buildStates(stateToId, queue, stateId, transitionTable, gotos);
-            transitions.put(fromState, transitionTable);
+            System.out.println("\t\tGotoSymbol:" + grammar.symbol(gotoSymbol));
+
+            allGotos.computeIfAbsent(gotoSymbol, _ -> new HashSet<>()).add(item.advance());
+
+            if (grammar.isNonTerminal(gotoSymbol)) calculateGotos(derivations.get(gotoSymbol), allGotos);
         }
+
+        stateId = buildStates(stateToId, queue, stateId, transitionTable, allGotos);
+        transitions.put(fromState, transitionTable);
+
         return stateId;
     }
     private void calculateGotos(Set<Integer> derivations, HashMap<Integer, Set<Item>> gotos) {
@@ -223,11 +286,21 @@ public class Parser {
         for (Integer nt : derivations) {
             grammar.forEachProduction(nt,index -> {
                 Production p = grammar.production(index);
-                Integer s = p.isEmpty() ? grammar.EPSILON() : p.getFirst();
+                if (p.isEmpty()) return;
+                Integer s = p.getFirst();
                 gotos.computeIfAbsent(s, _ -> new HashSet<>())
                         .add(new Item(index, 1, null));
             });
+
         }
+        System.out.println("\t\t\t" +
+                    gotos.keySet().stream()
+                            .map(key -> grammar.symbol(key) + " -> " +
+                                    gotos.get(key).stream()
+                                            .map(grammar::toString)
+                                            .collect(Collectors.toSet())
+                            ).collect(Collectors.joining("\n\t\t\t"))
+            );
     }
     private int buildStates(Map<Set<Item>, Integer> stateToId, Queue<Set<Item>> queue, int stateId, int[] transitionTable, HashMap<Integer, Set<Item>> gotos) {
         for (int symbol : gotos.keySet()) {
@@ -252,11 +325,27 @@ public class Parser {
 
             // Compute LR(1) closure of this seeded item
             Set<Item> closure = closure(seededItemSet);
+            System.out.println("Closure:\n\t"+closure.stream().map(grammar::toString).collect(Collectors.joining("\n\t")));
 
             for (Item B : closure) {
 //                if (grammar.atEnd(B)) continue;
-                int symbolId = grammar.symbol(B);
+                Production production = grammar.production(B.index());
                 int lookahead = B.lookahead();
+
+                if (production.atEnd(B.dot())) {
+                    // At dot at end: this item should emit a reduce lookahead.
+                    // It should NOT be skipped — record propagation!
+                    if (lookahead == grammar.TEST()) {
+                        propagated.computeIfAbsent(new SignedItem(fromState, item), _ -> new HashSet<>())
+                                .add(new SignedItem(fromState, B.core()));
+                    } else {
+                        spontaneous.computeIfAbsent(new SignedItem(fromState, B.core()), _ -> new HashSet<>())
+                                .add(lookahead);
+                    }
+                    continue;
+                }
+
+                int symbolId = grammar.symbol(B);
                 int toState = transitionTable[symbolId];
                 if (toState < 0) continue;
 
@@ -365,16 +454,19 @@ public class Parser {
     }
 
     private void printChannels(HashMap<SignedItem, Set<Integer>> spontaneous, HashMap<SignedItem, Set<SignedItem>> propagated) {
+        System.out.println("Channels:");
+        System.out.println("\tSpontaneous");
         spontaneous.forEach((key, values) -> {
             String front = key.toReadable(grammar);
             front += " ".repeat(Math.max(0,20 - front.length()));
-            System.out.println(front + " ==> " + values.stream().map(item -> grammar.symbol(item).toString()).collect(Collectors.joining(", ", "[", "]")));
+            System.out.println("\t\t" +front + " ==> " + values.stream().map(item -> grammar.symbol(item).toString()).collect(Collectors.joining(", ", "[", "]")));
         });
+        System.out.println("\tPropagated");
         propagated.forEach((key, values) -> {
             values.forEach(value -> {
                 String front = key.toReadable(grammar);
                 front += " ".repeat(Math.max(0,20 - front.length()));
-                System.out.println(front + " ==> " + value.toReadable(grammar));
+                System.out.println("\t\t" + front + " ==> " + value.toReadable(grammar));
             });
         });
     }

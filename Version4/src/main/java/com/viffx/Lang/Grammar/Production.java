@@ -3,7 +3,7 @@ package com.viffx.Lang.Grammar;
 import com.viffx.Lang.Compiler.Item;
 
 import java.util.ArrayList;
-import java.util.Objects;
+import java.util.List;
 
 public class Production extends ArrayList<Integer> {
     private final int lhs;
@@ -18,5 +18,23 @@ public class Production extends ArrayList<Integer> {
 
     public boolean atEnd(int dot) {
         return dot >= size();
+    }
+
+    public List<Integer> beta(int dot) {
+        dot++;
+        if (atEnd(dot)) {
+            Grammar.throwIndexOutOfBoundsException(dot,size());
+        }
+
+        // return a new list containing RHS indices after the dot
+        return new ArrayList<>(subList(dot, size()));
+    }
+
+    @Override
+    public String toString() {
+        return "Production{" +
+                "lhs=" + lhs +
+                ", elements=" + super.toString() +
+                '}';
     }
 }

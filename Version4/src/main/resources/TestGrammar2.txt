@@ -1,0 +1,3 @@
+START > S;
+S > H H;
+H > ID(c) H | ID(d);

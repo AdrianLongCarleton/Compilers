@@ -17,7 +17,6 @@ public class LALR1 {
     public LALR1(Grammar g) {
         grammar = g;
     }
-    @NotNull
     private Set<Integer> first(List<Integer> symbols) {
         if (symbols == null || symbols.isEmpty()) return Set.of(grammar.EPSILON);
         Set<Integer> terminals = new HashSet<>();
@@ -46,7 +45,6 @@ public class LALR1 {
 
         return terminals;
     }
-    @NotNull
     private Set<Item> closure(Set<Item> I) {
         Set<Item> J = new LinkedHashSet<>(I);
         Queue<Item> queue = new LinkedList<>(I);

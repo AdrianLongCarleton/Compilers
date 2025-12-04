@@ -13,6 +13,19 @@ public record Terminal(SymbolType type, String value) implements Symbol {
 
     @Override
     public String toString() {
-        return type + "(" + (value == null ? "" : value) + ")";
+        return type + "(" + (value == null ? "" : value.replaceAll("\n", "\\\\n")) + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        Terminal terminal = (Terminal) o;
+        if (terminal.value == null) return type == terminal.type;
+        return Objects.equals(value, terminal.value) && type == terminal.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, value);
     }
 }

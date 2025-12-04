@@ -1,0 +1,45 @@
+public variable lambda id = (parameters) block
+public variable type id = expression
+public variable type id (parameters) block
+public var lambda id = (parameters) block
+public var type id = expression
+public var type id (parameters) block
+public value lambda id = (parameters) block
+public value type id = expression
+public value type id (parameters) block
+public val lambda id = (parameters) block
+public val type id = expression
+public val type id (parameters) block
+public lambda id = (parameters) block
+public type id = expression
+public type id (parameters) block
+private variable lambda id = (parameters) block
+private variable type id = expression
+private variable type id (parameters) block
+private var lambda id = (parameters) block
+private var type id = expression
+private var type id (parameters) block
+private value lambda id = (parameters) block
+private value type id = expression
+private value type id (parameters) block
+private val lambda id = (parameters) block
+private val type id = expression
+private val type id (parameters) block
+private lambda id = (parameters) block
+private type id = expression
+private type id (parameters) block
+variable lambda id = (parameters) block
+variable type id = expression
+variable type id (parameters) block
+var lambda id = (parameters) block
+var type id = expression
+var type id (parameters) block
+value lambda id = (parameters) block
+value type id = expression
+value type id (parameters) block
+val lambda id = (parameters) block
+val type id = expression
+val type id (parameters) block
+lambda id = (parameters) block
+type id = expression
+type id (parameters) block

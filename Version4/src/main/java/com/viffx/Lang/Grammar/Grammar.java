@@ -10,6 +10,7 @@ import com.viffx.Lang.Utils.LexicalCharacterBuffer;
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static java.lang.Character.isLetterOrDigit;
 import static java.lang.Character.isWhitespace;
@@ -59,7 +60,6 @@ public class Grammar {
     private int START;
 
     // Production fields
-    private final List<int[]> productionRanges = new ArrayList<>();
     private final List<Production> productions = new ArrayList<>();
 
     // Lexing fields
@@ -80,14 +80,6 @@ public class Grammar {
         keywords = Collections.unmodifiableSet(symbolProcessingResult.keywords);
 
         checkForUndefinedNonTerminals(parseResult);
-
-        // properly pad the pointers
-        List<int[]> temp = new ArrayList<>(productionRanges);
-        productionRanges.clear();
-        int index = 0;
-        for (boolean b : isNonTerminal) {
-            productionRanges.add(b ? temp.get(index++) : new int[0]);
-        }
 
         // eliminate redundant epsilons
         for (int i = 0; i < productions.size(); i++) {
@@ -165,7 +157,7 @@ public class Grammar {
         Production production = productions.get(item.index());
         int dot = item.dot() + 1;
         if (dot >= production.size()) {
-            throwIndexOutOfBoundsException(dot,production.size());
+            return Collections.emptyList();
         }
 
         // return a new list containing RHS indices after the dot
@@ -212,10 +204,10 @@ public class Grammar {
         }
 
         // If the production has no symbols (i.e., empty production)
-        if (production.isEmpty()) builder.append("EPSILON()");
+        if (production.isEmpty()) builder.append("empty production");
 
         // If the dot is positioned at the very end of the production
-        if (production.size() == item.dot()) builder.append(" •");
+        if (production.size() <= item.dot()) builder.append(" •");
 
         // If the dot somehow moved past the production's end, flag it as an error
         if (!production.isEmpty() && item.dot() > production.size()) {
@@ -223,7 +215,7 @@ public class Grammar {
         }
 
         // Append the lookahead symbol (if any)
-        Symbol lookahead = symbols[item.lookahead()];
+        Symbol lookahead = item.lookahead() == null ? null : symbols[item.lookahead()];
         builder.append(", [")
                .append(lookahead == null ? "" : lookahead)
                .append("];");
@@ -382,7 +374,7 @@ public class Grammar {
      * @param consumer a function to process each production index belonging to that non-terminal
      */
     public void forEachProduction(int nonTerminal, Consumer<Integer> consumer) {
-        int[] data = productionRanges.get(nonTerminal);
+        int[] data = productionRanges(nonTerminal);
 
         // Iterate over the production index range for the given non-terminal
         for (int i = data[0]; i < data[1]; i++) {
@@ -405,10 +397,21 @@ public class Grammar {
      * @throws IndexOutOfBoundsException if {@code nonTerminal} is invalid
      */
     public int[] productionRanges(int nonTerminal) {
-        return productionRanges.get(nonTerminal);
+        Symbol symbol = symbols[nonTerminal];
+        if (symbol instanceof NonTerminal nt) {
+            return nt.productionsRange();
+        } else {
+            throw new IllegalArgumentException("Inputted the index of a terminal");
+        }
     }
 
-
+    public void eliminateEpsilons() {
+        for (Production production : productions) {
+            List<Integer> rhs = production.stream().filter(symbol -> symbol != EPSILON).toList();
+            production.clear();
+            production.addAll(rhs);
+        }
+    }
 
     // Grammar - Special Symbols
 
@@ -469,7 +472,7 @@ public class Grammar {
 
     // Public API helper methods
 
-    private void throwIndexOutOfBoundsException(int index, int size) {
+    public static void throwIndexOutOfBoundsException(int index, int size) {
         throw new IndexOutOfBoundsException(
                 String.format("Index %d out of bounds for length %d",
                         index,
@@ -565,6 +568,7 @@ public class Grammar {
         currentRule.add(leftHandSide);
         // register it
         int id = symbols.computeIfAbsent(leftHandSide, _ -> symbols.size());
+        int lhs = id;
 
         // parse some syntax
         expect(">",TokenType.SYMBOL);
@@ -614,7 +618,7 @@ public class Grammar {
             // The current production is terminated
             // Begin a new production for id
             productions.add(production);
-            production = new Production(id);
+            production = new Production(lhs);
 
             // Change the state of the parsing state machine
             String value = current.value();
@@ -638,14 +642,16 @@ public class Grammar {
             if (productions.get(from).size() != 1) throw new IOException(errorContext() + " The NonTerminal START may only have one symbol in the right hand side.");
         }
 
-        productionRanges.add(new int[]{from,to});
-
+        symbols.remove(leftHandSide);
+        symbols.put(new Token(TokenType.NON_TERMINAL, new NonTerminal(leftHandSide.value(), new int[]{from,productions.size()})),lhs);
     }
 
     // ====== SYMBOL FINALIZATION ====== //
     // register special symbols and finalize the symbols data structure by reducing them to arrays
     private SymbolProcessingResult processSymbols(HashMap<Token,Integer> symbolsMap) {
-        EPSILON = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.EPSILON,"null")),_ -> symbolsMap.size());
+        Token epsilonKey = new Token(TokenType.TERMINAL,new Terminal(SymbolType.EPSILON, null));
+        System.out.println(symbolsMap.keySet().stream().map(key -> symbolsMap.get(key) + " -> " + key.symbol()).collect(Collectors.joining("\n")));
+        EPSILON = symbolsMap.computeIfAbsent(epsilonKey,_ -> symbolsMap.size());
         TEST = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.TEST,"#")), _ -> symbolsMap.size());
         EOF = symbolsMap.computeIfAbsent(new Token(TokenType.TERMINAL,new Terminal(SymbolType.EOF,"$")), _ -> symbolsMap.size());
 
@@ -667,6 +673,8 @@ public class Grammar {
                 keywords.add(symbol.value());
             }
         }
+
+        System.out.println(Arrays.toString(symbols));
 
         // shorten the nonTerminals array to the propper length
         System.arraycopy(nonTerminals, 0, nonTerminals, 0, nonTerminalCount);
@@ -703,6 +711,11 @@ public class Grammar {
      * @throws IOException if an unknown symbol or malformed token is encountered
      */
     private Token next() throws IOException {
+        Token token = temp_next();
+//        System.out.println(token);
+        return token;
+    }
+    private Token temp_next() throws IOException {
         if (lexer.eof()) return Token.EOF;
 
         index++;
@@ -713,7 +726,7 @@ public class Grammar {
         if (!isLetterOrDigit(c)) {
             lexer.nextChar();
             return switch (c) {
-                case '>', '|', ';' -> new Token(TokenType.SYMBOL, new NonTerminal(String.valueOf(c)));
+                case '>', '|', ';' -> new Token(TokenType.SYMBOL, new NonTerminal(String.valueOf(c), null));
                 default -> throw new IOException(errorContext() + " unknown symbol: " + c);
             };
         }
@@ -729,7 +742,7 @@ public class Grammar {
         // if it's a terminal then the name is the value of the non-terminal
         // else it's the type of the terminal
         if (lexer.eof() || lexer.crntChar() != '(')
-            return new Token(TokenType.NON_TERMINAL,new NonTerminal(builder.toString()));
+            return new Token(TokenType.NON_TERMINAL,new NonTerminal(builder.toString(), null));
 
         // Check that the user entered a valid type name
         SymbolType type;

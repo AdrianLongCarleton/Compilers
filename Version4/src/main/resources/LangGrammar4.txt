@@ -1,0 +1,52 @@
+START > statements;
+statements > statement_prime end_statement statements | statement_prime | EPSILON();
+end_statement > SYM(\n) | SYM(;);
+statement_prime > declaration;
+declaration
+    > access_modifier mut_modifier lambda_decl
+    | access_modifier mut_modifier typed_value_decl
+    | access_modifier mut_modifier function_decl
+    ;
+
+access_modifier
+    > KEY(public)
+    | KEY(private)
+    | EPSILON()
+    ;
+
+mut_modifier
+    > KEY(variable)
+    | KEY(var)
+    | KEY(value)
+    | KEY(val)
+    | EPSILON()
+    ;
+
+lambda_decl
+    > KEY(lambda) id SYM(=) function_rhs
+    ;
+
+typed_value_decl
+    > KEY(type) id SYM(=) KEY(expression)
+    ;
+
+function_decl
+    > KEY(type) id SYM(() parameters SYM()) block
+    ;
+
+function_rhs
+    > SYM(() parameters SYM()) block
+    ;
+
+id
+    > KEY(id)
+    ;
+
+parameters
+    > KEY(parameters)
+    ;
+
+block
+    > KEY(block)
+    ;
+

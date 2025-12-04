@@ -21,14 +21,10 @@ public record Token(TokenType type, Symbol symbol) {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
-        Token token = (Token) o;
-        return Objects.equals(value(), token.value()) && type == token.type;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(type, value());
+    public String toString() {
+        return "Token{" +
+                "type=" + type +
+                ", symbol='" + symbol +
+                "'}";
     }
 }

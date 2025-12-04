@@ -46,10 +46,13 @@ public class Lexer {
         char c = buffer.crntChar();
         // Skip any white space
         if (isWhitespace(c)) {
+            boolean detected_new_line = false;
             do {
+                detected_new_line |= c == '\n';
                 if (buffer.eof()) break;
                 c = buffer.nextChar();
             } while (isWhitespace(c));
+            if (detected_new_line) return new Terminal(SYM,"\n");
         }
 
         // Get the nextToken token

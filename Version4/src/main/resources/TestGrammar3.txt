@@ -1,0 +1,4 @@
+START > S;
+S > E;
+E > E SYM(-) T | T;
+T > NUM() | SYM(() E SYM());

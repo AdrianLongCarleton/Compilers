@@ -1,0 +1,8 @@
+START > statements;
+statements > statement SYM(;) statements | EPSILON();
+statement > import_statement | declaration_statement;
+declaration_statement > modifiers ID();
+modifiers > KEY(public) | KEY(private) | EPSILON();
+import_statement > KEY(import) str_or_id;
+str_or_id > STR() | ID();
+

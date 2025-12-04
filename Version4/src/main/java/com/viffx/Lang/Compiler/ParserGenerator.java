@@ -1,47 +1,50 @@
-package com.viffx.Lang;
+package com.viffx.Lang.Compiler;
 
 
-import com.viffx.Lang.Automata.Action;
-import com.viffx.Lang.Automata.LALR1;
+import com.viffx.Lang.Compiler.Action;
 import com.viffx.Lang.Grammar.Grammar;
 import com.viffx.Lang.Grammar.Production;
 import com.viffx.Lang.Symbols.AstNode;
 import com.viffx.Lang.Symbols.NonTerminal;
-import com.viffx.Lang.Symbols.Symbol;
 import com.viffx.Lang.Symbols.Terminal;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class CompilerFactory {
+public class ParserGenerator {
     public static final boolean debug = true;
     private StringBuilder builder = new StringBuilder();
     private final Grammar grammar;
     public final List<HashMap<Integer, Action>> parseTable;
 
-    public CompilerFactory(String filePath) throws Exception {
+    public ParserGenerator(String filePath) throws Exception {
         Grammar g = Grammar.load(filePath);
-        System.out.println(g);
-        for (int i = 0; i < g.numSymbols(); i++) {
-            if (!g.isNonTerminal(i)) continue;
-            g.forEach(i,index -> {
-                System.out.println(g.toString(g.production(index)));
-            });
-        }
-        LALR1 automata = new LALR1(g);
+//        for (int i = 0; i < g.symbolCount(); i++) {
+//            if (!g.isNonTerminal(i)) continue;
+//            g.forEachProduction(i,index -> {
+//                System.out.println(g.toString(g.production(index)));
+//            });
+//        }
+        LALR1ParseTableGenerator parseTable = new LALR1ParseTableGenerator(g);
         this.grammar = g;
-        this.parseTable = automata.generate();
+        this.parseTable = parseTable.generate();
     }
 
     public static void main(String[] args) throws Exception {
-        CompilerFactory factory = new CompilerFactory("src/main/resources/TestGrammar");
+//        ParserGenerator factory = new ParserGenerator("src/main/resources/TestGrammar1.txt");
+//        ParserGenerator factory = new ParserGenerator("src/main/resources/TestGrammar2.txt");
+//        ParserGenerator factory = new ParserGenerator("src/main/resources/TestGrammar3.txt");
+//        ParserGenerator factory = new ParserGenerator("src/main/resources/LangGrammar3.txt");
+        ParserGenerator factory = new ParserGenerator("src/main/resources/LangGrammar4.txt");
         factory.run();
         System.out.println(factory.builder);
+        Compiler compiler = new Compiler(new Lexer("src/main/resources/CodeTest1.txt", factory.grammar.getKeywords()));
+        compiler.parse();
     }
 
     private void run() {
         builder.append("""
-                package com.viffx.Lang;
+                package com.viffx.Lang.Compiler;
                 \s
                 import com.viffx.Lang.Symbols.*;
                 \s
@@ -53,14 +56,13 @@ public class CompilerFactory {
                     \s
                     // Symbols
                 """);
-        List<Symbol> symbols = grammar.symbols();
-        for (int i = 0; i < symbols.size(); i++) {
+        for (int i = 0; i < grammar.symbolCount(); i++) {
             builder.append("\tpublic final Symbol symbol").append(i).append(" = new ");
             boolean isNull = false;
-            switch (symbols.get(i)) {
+            switch (grammar.symbol(i)) {
                 case Terminal t -> {
                     isNull = t.value() == null;
-                    builder.append(" Terminal(TokenType.").append(t.type()).append(", ");
+                    builder.append(" Terminal(SymbolType.").append(t.type()).append(", ");
                     if (!isNull) {
                         builder.append("\"");
                     }
@@ -86,7 +88,7 @@ public class CompilerFactory {
                         this.lexer = lexer;
                         do {
                             current = lexer.next();
-                        } while (current.type() == TokenType.COMMENT);
+                        } while (current instanceof Terminal t && t.type() == SymbolType.COMMENT);
                         this.stack.push(0);
                     }
                 """);
@@ -143,7 +145,7 @@ public class CompilerFactory {
                 		if (!success) {
                 		    throw new Exception("Failed parse");
                 		}
-                		CompilerFactory.printAST(ast.pop());
+                		ParserGenerator.printAST(ast.pop());
                 	}
                 \s
                 	// === Utility methods for LR actions ===
@@ -154,7 +156,7 @@ public class CompilerFactory {
                  		ast.push(new AstNode(current));
                  		do {
                    			current = lexer.next();
-                   		} while (current.type() == TokenType.COMMENT);
+                   		} while (current instanceof Terminal t && t.type() == SymbolType.COMMENT);
                  	}
                 \s
                 	private void reduce(Symbol lhs, int rhsLength) throws Exception {
