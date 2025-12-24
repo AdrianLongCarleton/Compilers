@@ -4,4 +4,5 @@ project(Version5 C)
 set(CMAKE_C_STANDARD 11)
 
 add_executable(Version5
-        Compiler.c)
+        Compiler.c
+        Parser.C)

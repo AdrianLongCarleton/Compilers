@@ -5,40 +5,40 @@
 #include <stdint.h> //#
 #include <string.h> //#
 #include <time.h> //#
+#include <assert.h>
+
 typedef struct {
 	char *data;
-	size_t size;
+	uint64_t size;
 } File;
 File *loadFile(const char* filename) {
 	FILE *fp = NULL;
 	char *buffer = NULL;
-	File *file = NULL;
 
 	fp = fopen(filename, "rb");
 	if (!fp) goto file_not_found;
 
 	// Determine file size
 	fseek(fp, 0, SEEK_END);
-	long length = ftell(fp);
-	if (length < 0) goto read_error;
+	const uint64_t length = (uint32_t) ftell(fp);
 	rewind(fp);
 	
-	const size_t PAD = 64;
-	buffer = malloc((size_t)length + 1 + PAD);
+	const uint64_t PAD = 64;
+	buffer = malloc((size_t) (length + 1 + PAD));
 	if (!buffer) goto malloc_failed;
 	
 	// Read into buffer
-	size_t readCount = fread(buffer, 1, (size_t)length, fp);
-	if (readCount != (size_t)length) goto read_error;
+	const uint64_t readCount = (uint32_t) fread(buffer, 1, (size_t) length, fp);
+	if (readCount != length) goto read_error;
 
 	// set the last 65 bytes of the buffer to the null terminator so SIMD scans stop safely
 	memset(buffer + length, 0, 1 + PAD);
 
-	file = malloc(sizeof *file);
+	File *file = malloc(sizeof(File));
 	if (!file) goto malloc_failed;
 
 	file->data = buffer;
-	file->size = (size_t)length;
+	file->size = length;
 	fclose(fp);
 
 	return file;
@@ -57,23 +57,24 @@ void freeFile(File *file) {
 	free(file);
 	file = NULL;
 }
-void nextBlock(char c, char **currentChar) {
-       char endChar = c;
-       bool escaped = false;
-       *currentChar += 1;
-       c = **currentChar;
-       while (c != '\0' && (c != endChar || escaped)) {
-	       if (c == '\\') {
-		       escaped = !escaped;
-	       } else {
-		       escaped = false;
-	       }
-	       *currentChar += 1;
-	       c = **currentChar;
-       }
-       (*currentChar)++;
+char *nextBlock(char c, char *currentChar) {
+	const char endChar = c;
+	bool escaped = false;
+	currentChar += 1;
+	c = *currentChar;
+	while (c != '\0' && (c != endChar || escaped)) {
+		if (c == '\\') {
+			escaped = !escaped;
+		} else {
+			escaped = false;
+		}
+		currentChar += 1;
+		c = *currentChar;
+	}
+	currentChar += 1;
+	return currentChar;
 }
-static inline size_t simd_whitespace(const char *p) {
+static inline uint64_t simd_whitespace(const char *p) {
     const char *start = p;
 
     const __m128i LIMIT = _mm_set1_epi8(0x21); // <= 0x20
@@ -94,13 +95,13 @@ static inline size_t simd_whitespace(const char *p) {
         int mask = _mm_movemask_epi8(is_ws);
 
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
-static inline size_t simd_id(const char *p) {
+static inline uint64_t simd_id(const char *p) {
     const char *start = p;
 
     // ---- scalar first character (identifier start) ----
@@ -154,13 +155,13 @@ static inline size_t simd_id(const char *p) {
 
         // stop at first non-identifier char
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
-static inline size_t simd_hex(const char *p) {
+static inline uint64_t simd_hex(const char *p) {
     	const char *start = p;
 	
     	// ---- scalar first character (identifier start) ----
@@ -208,14 +209,14 @@ static inline size_t simd_hex(const char *p) {
 
         // stop at first non-identifier char
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
 
-static inline size_t simd_num(const char *p) {
+static inline uint64_t simd_num(const char *p) {
     const char *start = p;
 
     // ---- scalar first char (cheap & correct) ----
@@ -244,13 +245,13 @@ static inline size_t simd_num(const char *p) {
 
         // stop at first non-digit
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
-static inline size_t simd_bin(const char *p) {
+static inline uint64_t simd_bin(const char *p) {
     const char *start = p;
 
     if (*p != '0' && *p != '1')
@@ -270,13 +271,13 @@ static inline size_t simd_bin(const char *p) {
         int mask = _mm_movemask_epi8(is_bin);
 
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
-static inline size_t simd_zero(const char *p) {
+static inline uint64_t simd_zero(const char *p) {
     const char *start = p;
 
     if (*p != '0' )
@@ -294,25 +295,61 @@ static inline size_t simd_zero(const char *p) {
         int mask = _mm_movemask_epi8(is_zero);
 
         if (mask != 0xFFFF) {
-            return (size_t)(p - start + __builtin_ctz(~mask));
+            return (uint64_t)(p - start + __builtin_ctz(~mask));
         }
 
         p += 16;
     }
 }
 
-size_t lex(char **currentChar, char **token, Type *type) {
-	*type = END_OF_FILE;
-	char c;
+typedef struct {
+	char *currentChar;
+	char *token;
+	uint32_t type;
+	uint64_t size;
+} Lexer;
+uint32_t TOKENTYPE_NULL =  0;
+uint32_t TOKENTYPE_ID   =  1;
+uint32_t TOKENTYPE_NUM  =  2;
+uint32_t TOKENTYPE_HEX  =  3;
+uint32_t TOKENTYPE_BIN  =  4;
+uint32_t TOKENTYPE_FLT  =  5;
+uint32_t TOKENTYPE_SYM  =  6;
+uint32_t TOKENTYPE_CHR  =  7;
+uint32_t TOKENTYPE_STR  =  8;
+uint32_t TOKENTYPE_KEY  =  9;
+uint32_t TOKENTYPE_EOF  = 10;
+uint32_t TOKENTYPE_IF_EXPRESSION = 11;
+uint32_t TOKENTYPE_ELSE_EXPRESSION = 12;
+uint32_t TOKENTYPE_MATCH_CASE = 13;
+uint32_t TOKENTYPE_MATCH_EXPRESSION = 14;
+uint32_t TOKENTYPE_EXPRESSION = 15;
+uint32_t TOKENTYPE_TYPES = 16;
+uint32_t TOKENTYPE_TYPE = 17;
+uint32_t TOKENTYPE_FUNCTION_DECLARATION = 18;
+uint32_t TOKENTYPE_LAMBDA = 19;
+uint32_t TOKENTYPE_FUNCTION = 19;
+uint32_t TOKENTYPE_VARIABLE_DECLARATION = 20;
+uint32_t TOKENTYPE_KEYWORD_PUBLIC = 21;
+uint32_t TOKENTYPE_KEYWORD_PRIVATE = 22;
+uint32_t TOKENTYPE_DECLARATION = 23;
+uint32_t TOKENTYPE_JUMP_STATEMENT = 24;
+uint32_t TOKENTYPE_LOOP_STATEMENT = 25;
+uint32_t TOKENTYPE_STATEMENT = 26;
+uint32_t TOKENTYPE_STATEMENTS = 27;
+uint32_t TOKENTYPE_BLOCK = 28;
+void nextToken(Lexer *lexer) {
+	lexer->type = TOKENTYPE_EOF;
+	lexer->size = 0;
 	char nextChar;
-	// skip white space
-	*currentChar += simd_whitespace(*currentChar);
+	// skip the white space
+	lexer->currentChar += simd_whitespace(lexer->currentChar);
 	while (true) {
-		c = **currentChar;
-		*token = *currentChar;
+		char c = *lexer->currentChar;
+		lexer->token = lexer->currentChar;
 		switch(c) {
 			case '\0':
-				return 0;
+				return;
 				//{}()[].;~\n\r|&+-><=*!/%^\?%`^
 				//{ and }
 				//( and )
@@ -340,28 +377,32 @@ size_t lex(char **currentChar, char **token, Type *type) {
 			case '/':
 			case '%':
 			case '^':
-				*type = SYM;
-				(*currentChar)++;
-				nextChar = **currentChar; 
+				lexer->type = TOKENTYPE_SYM;
+				lexer->currentChar += 1;
+				nextChar = *lexer->currentChar; 
 				if (nextChar == '=') {
-					*currentChar += 1;
-					return 2;
+					lexer->currentChar += 1;
+					lexer->size = 2;
+					return;
 				}
-				return 1;
+				lexer->size = 1;
+				return;
 			case '|':
 			case '&':
 			case '+':
 			case '-':
 			case '<':
 			case '>':
-				*type = SYM;
-				(*currentChar)++;
-				nextChar = **currentChar; 
+				lexer->type = TOKENTYPE_SYM;
+				lexer->currentChar += 1;
+				nextChar = *lexer->currentChar; 
 				if (nextChar == c || nextChar == '=') {
-					*currentChar += 1;
-					return 2;
+					lexer->currentChar += 1;
+					lexer->size = 2;
+					return;
 				}
-				return 1;
+				lexer->size = 1;
+				return;
 			case '{':
 			case '}':
 			case '(':
@@ -373,42 +414,47 @@ size_t lex(char **currentChar, char **token, Type *type) {
 			case ';':
 			case ',':
 			case '\n':
-				(*currentChar)++;
-				*type = SYM;
-				return 1;
+				lexer->type = TOKENTYPE_SYM;
+				lexer->currentChar += 1;
+				lexer->size = 1;
+				return;
 			case '"':
-				nextBlock(c,currentChar);
-				*type = STR;
-				return *currentChar - *token;
+				lexer->currentChar = nextBlock(c,lexer->currentChar);
+				lexer->type = TOKENTYPE_STR;
+				lexer->size = lexer->currentChar - lexer->token;
+				return;
 			case '\'':
-				nextBlock(c,currentChar);
-				*type = CHR;
-				return *currentChar - *token;
+				lexer->currentChar = nextBlock(c,lexer->currentChar);
+				lexer->type = TOKENTYPE_CHR;
+				lexer->size = lexer->currentChar - lexer->token;
+				return;
 			case '#':
-				*type = END_OF_FILE;
-				nextBlock(c,currentChar);
+				lexer->currentChar = nextBlock(c,lexer->currentChar);
+				lexer->type = TOKENTYPE_EOF;
 				break;
 			case '0':
 				// skip over all unessesary zeros
 
-				*currentChar += simd_zero(*currentChar);
+				lexer->currentChar += simd_zero(lexer->currentChar);
 				// check the character after the zeros
-				c = **currentChar;
+				c = *lexer->currentChar;
 				switch(c) {
 					// 0x <- hexidecimal
 					case 'x':
 					case 'X':
-						(*currentChar)++; // consume x
-						*currentChar += simd_hex(*currentChar);
-						*type = HEX;
-						return *currentChar - *token;
+						lexer->currentChar += 1; // consume x
+						lexer->currentChar += simd_hex(lexer->currentChar);
+						lexer->type = TOKENTYPE_HEX;
+						lexer->size = lexer->currentChar - lexer->token;
+						return;
 					// 0b <- binary
 					case 'b':
 					case 'B':
-						(*currentChar)++; // consume b
-						*currentChar += simd_bin(*currentChar);
-						*type = BIN;
-						return *currentChar - *token;
+						lexer->currentChar += 1; // consume b
+						lexer->currentChar += simd_bin(lexer->currentChar);
+						lexer->type = TOKENTYPE_BIN;
+						lexer->size = lexer->currentChar - lexer->token;
+						return;
 					// 0(1-9) <- the zero was irrelevant loop again.
 					case '1':
 					case '2':
@@ -422,8 +468,8 @@ size_t lex(char **currentChar, char **token, Type *type) {
 						break;
 					// 0(!(x|X|b|B|1-9)) <- the zero is just the number zero.
 					default:
-						*type = NUM;
-						return 1;
+						lexer->type = TOKENTYPE_NUM;
+						return;
 				}
 				break;
 			case '1':
@@ -435,96 +481,55 @@ size_t lex(char **currentChar, char **token, Type *type) {
 			case '7':
 			case '8':
 			case '9':
-				*type = NUM;
-				*currentChar += simd_num(*currentChar);
-				if (**currentChar != '.')  {
-					return *currentChar - *token;
+				lexer->type = TOKENTYPE_NUM;
+				lexer->currentChar += simd_num(lexer->currentChar);
+				if (*lexer->currentChar != '.')  {
+					lexer->size = lexer->currentChar - lexer->token;
+					return;
 				}
-				(*currentChar)++;
-				c = **currentChar;
+				lexer->currentChar += 1;
+				c = *lexer->currentChar;
 
 				if (c < '0' || c > '9') {
-					(*currentChar)--;
-					return *currentChar - *token;
+					lexer->currentChar -= 1;
+					lexer->size = lexer->currentChar - lexer->token;
+					return;
 				}
 
-				*currentChar += simd_num(*currentChar);
-				*type = FLT;
-				return *currentChar - *token;
+				lexer->currentChar += simd_num(lexer->currentChar);
+				lexer->type = TOKENTYPE_FLT;
+				lexer->size = lexer->currentChar - lexer->token;
+				return;
 			default:
 				if (!(('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z'))) {
-					(*currentChar)++;
+
+					lexer->currentChar += 1;
 					break;
 				}
-				*currentChar += simd_id(*currentChar);
-				*type = ID;
-				return *currentChar - *token;
+				lexer->currentChar += simd_id(lexer->currentChar);
+				lexer->type = TOKENTYPE_ID;
+				lexer->size = lexer->currentChar - lexer->token;
+				return;
 		}
 	}
 }
-typedef struct AstNode {
-	AstNode *parent;
+const char *type_name(uint32_t t) {
+	if (t == TOKENTYPE_ID) return "ID";
+	if (t == TOKENTYPE_NUM) return "NUM";
+	if (t == TOKENTYPE_HEX) return "HEX";
+	if (t == TOKENTYPE_BIN) return "BIN";
+	if (t == TOKENTYPE_FLT) return "FLT";
+	if (t == TOKENTYPE_SYM) return "SYM";
+	if (t == TOKENTYPE_CHR) return "CHR";
+	if (t == TOKENTYPE_STR) return "STR";
+	if (t == TOKENTYPE_KEY) return "KEY";
+	if (t == TOKENTYPE_EOF) return "EOF";
+	return "UNKNOWN";
+}
 
-	AstNode **children;
-	size_t childCapacity;
-	size_t childCount;
-
-	Type type;
-	char *token;
-	size_t size;
-} AstNode;
-AstNode *newAstNode(Type type) {
-	AstNode *n = malloc(sizeof(AstNode));
-	if (!n) return NULL;
-	n->parent = NULL;
-	n->children = NULL;
-	n->childCount = 0;
-	n->childCapacity = 0;
-	n->type = type;
-	n->token = NULL;
-	n->size = 0;
-	return n;
-}
-void freeAstNode(AstNode *node) {
-	if (!node) return;
-	for (size_t i = 0; i < node->childCount; i++) {
-		freeAstNode(node->children[i]);
-	}
-	free(node->children);
-	free(node);
-}
-AstNode *addChildAstNode(AstNode *parent, AstNode *child) {
-        if (parent->childCount == parent->childCapacity) {
-                size_t newCapacity = parent->childCapacity == 0 ? 4 : parent->childCapacity * 2;
-                parent->children = realloc(parent->children, newCapacity * sizeof(AstNode*));
-                if (!(parent->children)) {
-                        return NULL;
-                }
-                parent->childCapacity = newCapacity;
-        }
-
-        parent->children[parent->childCount++] = child;
-        child->parent = parent;
-        return child;	
-}
-const char *type_name(Type t) {
-    switch (t) {
-        case ID:          return "ID";
-        case NUM:         return "NUM";
-        case HEX:         return "HEX";
-        case BIN:         return "BIN";
-        case FLT:         return "FLT";
-        case SYM:         return "SYM";
-        case CHR:         return "CHR";
-        case STR:         return "STR";
-        case KEY:         return "KEY";
-        case END_OF_FILE: return "END_OF_FILE";
-        default:          return "UNKNOWN";
-    }
-}
-static void print_token(char *token, Type type, int size) {
+static void print_token(char* token, uint32_t type, uint64_t size) {
 	printf("TOKEN{.type=%s, .value='", type_name(type));
-	for (size_t i = 0; i < (size_t) size; i++) {
+	for (uint64_t i = 0; i < size; i++) {
 		switch (token[i]) {
 			case '\n': printf("\\n"); break;
 			case '\t': printf("\\t"); break;
@@ -542,129 +547,565 @@ static void print_token(char *token, Type type, int size) {
 static inline long long now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    return ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
-typedef enum {
-	STATEMENTS,
-	STATEMENT,
-	DECLARATION,
-	FUNCTION_DECL,
-	VARIABLE_DECL,
-	PUBLICITY_PUBLIC,
-	PUBLICITY_PRIVATE,
-	ID,
-	NUM,
-	HEX,
-	BIN,
-	FLT,
-	SYM,
-	CHR,
-	STR,
-	KEY,
-	END_OF_FILE
-} Type;
-#define nextToken() do { size = lex(&currentChar, &token, &type) } while (0)
-#define pushChild(type) addChildAstNode(current,newAstNode(type))
+typedef struct {
+        char *token;
+        uint64_t tokenSize;
+        
+	uint64_t size;
 
-static inline bool match(char *token, size_t size, size_t tarSize; const char *tarToken) {
-	if (size != tarSize) return false;
-	if (size <= 3) {
-		for(size_t i = 0; i < size; i++) {
-			if (token[i] != tarToken[i]) return false;
-		}
-		return true;
+        uint32_t astNodeType;
+        uint32_t tokenType;
+} AstNode;
+typedef struct {
+        AstNode *nodes;
+        uint64_t capacity;
+        uint64_t count;
+} AST;
+
+AST *AST_create() {
+	AST *ast = malloc(sizeof(AST));
+	if(!ast) return NULL;
+	ast->capacity = 8192;
+	ast->nodes = malloc(sizeof(AstNode) * ast->capacity);
+	ast->count = 0;	
+	return ast;
+}
+void AST_destroy(AST *ast) {
+	if (!ast) return;
+	free(ast->nodes);
+	free(ast);
+	ast = NULL;
+}
+bool AST_addNode(AST *ast, AstNode node) {
+	if (!ast) return false;
+	if (ast->count >= ast->capacity) {
+		ast->capacity *= 2;
+		if (ast->capacity > SIZE_MAX / sizeof *ast->nodes) return false;
+		AstNode *nodes = realloc(ast->nodes, ast->capacity * sizeof *ast->nodes);
+		if (!nodes) return false;
+		ast->nodes = nodes;
 	}
-	return memcmp(token,tarToken,size) == 0;
+	ast->nodes[ast->count++] = node;
+	return true;
 }
-AstNode *parse(const char* fileName) {
-	File *file = loadFile(fileName);
-	if(!file) return NULL;
-		
-	AstNode *current = newAstNode(STATEMENTS);
-	if(!astNode) return NULL;
-	AstNide *child = NULL;
-	
-	char *currentChar = file->data;
-	char *token = NULL;
-	Type type;
-	size_t size;
+uint32_t AST_NODE_TYPE_NULL = 0;
+uint32_t AST_NODE_TYPE_TERMINAL = 1;
+uint32_t AST_NODE_TYPE_NON_TERMINAL = 2;
 
-	static void *states[] {
-		&&STATEMENTS,
+bool AST_createNode(AST *ast) {
+        if (!ast) return false;
+        if (ast->count >= ast->capacity) {
+                ast->capacity *= 2;
+                if (ast->capacity > SIZE_MAX / sizeof *ast->nodes) return false;
+                AstNode *nodes = realloc(ast->nodes, ast->capacity * sizeof *ast->nodes);
+                if (!nodes) return false;
+                ast->nodes = nodes;
+        }
+
+	ast->nodes[ast->count] = (AstNode){0};
+	ast->count++;
+        return true;
+}
+static inline AstNode AST_getNode(AST *ast) {
+	return ast->nodes[ast->count - 1];
+}
+static inline void AST_createNonTerminalNode(AST *ast, AstNode current, uint32_t tokenType) {
+	current.astNodeType = AST_NODE_TYPE_NON_TERMINAL;
+	current.tokenType = tokenType;
+	current.size = 1;
+	AST_createNode(ast);
+}
+static inline void AST_createTerminalNode(AST *ast, AstNode current, uint32_t tokenType, char *token, uint64_t tokenSize) {
+	current.astNodeType = AST_NODE_TYPE_TERMINAL;
+	current.tokenType = tokenType;
+
+	current.token = token;
+	current.tokenSize = tokenSize;
+
+	AST_createNode(ast);
+}
+uint64_t parseBlock(Lexer *lexer, AST *ast, bool *parseError); 
+uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag);
+uint64_t parseIfExpression(Lexer* lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_IF_EXPRESSION);
+
+	current.size += 1;
+	current.size += parseExpression(lexer,ast,parseError,0);
+	if (*parseError) return current.size;
+	current.size += parseBlock(lexer,ast,parseError);
+	if (*parseError) return current.size;
+	Lexer temp = *lexer;
+	nextToken(&temp);
+	if (temp.type == TOKENTYPE_ID && temp.size == 5 && memcmp(temp.token,"else",4) == 0) {
+		*lexer = temp;
+		nextToken(lexer);
+		AstNode elseBranch = AST_getNode(ast);
+		AST_createNonTerminalNode(ast,elseBranch,TOKENTYPE_ELSE_EXPRESSION);
+		elseBranch.size = parseBlock(lexer,ast,parseError);
+		if (*parseError) return current.size;
+		current.size += elseBranch.size;
+	}
+	return current.size;
+}
+
+
+uint64_t parseJumpStatement(Lexer *lexer, AST *ast, bool *parseError);
+uint64_t parseMatchCase(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_MATCH_CASE);
+
+	if (lexer->type == TOKENTYPE_SYM) {
+		*parseError = true;
+		return 0;
+	}
+
+	nextToken(lexer);
+	current.size += parseExpression(lexer,ast,parseError,0);
+	if (*parseError) return current.size;
+	
+	if (lexer->type != TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == ':') {
+		*parseError = true;
+		return current.size;
+	}
+	nextToken(lexer);
+
+
+	const char *token = lexer->token;
+	if (lexer->type == TOKENTYPE_ID) {
+		switch(lexer->size) {
+			case 2:
+				if (token[0] == 'i' && token[1] == 'f') {
+					current.size += parseExpression(lexer,ast,parseError,1);
+				}
+				break;
+			case 4:
+				if (memcmp(token,"loop",4) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				}
+				break;
+			case 5:
+				if (memcmp(token,"break",5) == 0 || memcmp(token,"yield",5) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				} else if (memcmp(token,"match",5) == 0) {
+					current.size += parseExpression(lexer,ast,parseError,2);
+				}
+				break;
+			case 6: 
+				if(memcmp(token,"return",6) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				}
+				break;
+			default:
+				current.size += parseExpression(lexer,ast,parseError,0);
+		}
+	} else if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *token == '{') {
+		current.size += parseBlock(lexer,ast,parseError);
+	} else {
+		current.size += parseExpression(lexer,ast,parseError,0);
+	}
+	return current.size;
+}
+uint64_t parseMatchExpression(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_MATCH_EXPRESSION);
+	current.size += parseExpression(lexer,ast,parseError,0);
+
+	if (lexer->type != TOKENTYPE_SYM && lexer->size != 1 && *(lexer->token) != '{') {
+		*parseError = true;
+		return 0;
+	}
+	while(true) {
+		current.size += parseMatchCase(lexer,ast,parseError);
+		if (parseError) return current.size;
+		nextToken(lexer);
+		if (lexer->type == TOKENTYPE_EOF) {
+			*parseError = true;
+			return current.size;
+		}
+		char c = *(lexer->token);
+		if (c != '\n' && c != '}') {
+			*parseError = true;
+			return current.size;
+		}
+		nextToken(lexer);
+		if (*(lexer->token) == '}') break;
+	}
+	return current.size;
+}
+uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_EXPRESSION);
+	switch (flag) {
+		case 0:
+			current.size += parseMatchExpression(lexer,ast,parseError);
+			break;
+		case 1:
+			current.size += parseIfExpression(lexer,ast,parseError);
+		case 2:
+			current.size += parseExpression(lexer,ast,parseError,0);
+		default:
+			*parseError = true;
+			return 0;
+	}
+	return current.size;
+}
+uint64_t parseType(Lexer *lexer, AST *ast, bool *parseError);
+uint64_t parseTypes(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_TYPES);
+	while (true) {
+		current.size += parseType(lexer,ast,parseError);
+		if (*parseError) return current.size;
+		Lexer temp = *lexer;
+		nextToken(lexer);
+		if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *(lexer->token) != ',') {
+			*lexer = temp;
+			break;
+		}
+	}
+	return current.size;
+}
+uint64_t parseType(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_TYPE);
+	if (lexer->type == TOKENTYPE_ID) {
+		AST_createTerminalNode(ast,AST_getNode(ast),TOKENTYPE_ID,lexer->token,lexer->size);
+		current.size += 1;
+		nextToken(lexer);
+		if (lexer->type != TOKENTYPE_ID) {
+			*parseError = true;
+			return 0;
+		}
+		current.size += 1;
+		return current.size;
+	}
+	if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '(') {
+		current.size += parseTypes(lexer,ast,parseError);
+		nextToken(lexer);
+		if (lexer->type != TOKENTYPE_SYM || lexer->size != 0 || *(lexer->token) == ')') {
+			*parseError = true;
+			return current.size;
+		}
+		nextToken(lexer);
+		if (lexer->type != TOKENTYPE_ID) {
+			*parseError = true;
+			return current.size;
+		}
+		current.size += 1;
+		return current.size;
+	}
+	*parseError = true;
+	return 0;
+}
+uint64_t parseFunctionDeclaration(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_FUNCTION_DECLARATION);
+	nextToken(lexer);
+	if (lexer->type != TOKENTYPE_ID) {
+		*parseError = true;
+		return 0;
+	}
+	nextToken(lexer);
+	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1) {
+		*parseError = true;
+		return 0;
+	}
+	if (*(lexer->token) == '=') {
+		nextToken(lexer);
+		AST_createNonTerminalNode(ast,current,TOKENTYPE_LAMBDA);
+	} else {
+		AST_createNonTerminalNode(ast,current,TOKENTYPE_FUNCTION);
+	}
+
+	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *(lexer->token) == '(') {
+		*parseError = true;
+		return 1;
+	}
+	current.size += 1 + parseType(lexer,ast,parseError);
+	if (*parseError) return current.size;
+	nextToken(lexer);	
+	current.size += parseTypes(lexer,ast,parseError);
+	if (*parseError) return current.size;
+	nextToken(lexer);
+	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *lexer->token != ')') {
+		*parseError = true;
+	}
+	return current.size;
+}
+uint64_t parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_VARIABLE_DECLARATION);
+
+	if (flag == 2) {
+		AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PUBLIC);
+	} else {
+		AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PRIVATE);
 	}	
-	
-	goto STATEMENTS;
-	STATEMENTS:
-		while(true) {
-			goto STATEMENT;
-		}
-	STATEMENT:
-		// maybe travel up the three until the parent's type is a statements.
-		// That can succesfully reduce a significant part of the tree efficiently,
-		// Some thinking still has to be done. Good luck. Love you man.
-		current = pushChild(STATEMENT);
-		nextToken();
-		if(type != ID) goto error; 
-		if(match(token,"def")) {
-			goto FUNCTION_DECL;
-		}
-		if(size == 6 && memcmp(token,"public",6) (size == 7 && memcmp(token,"private",7) == 0)) {
-			goto VARIABLE_DECL;
-		}
-		goto error;
-	FUNCTION_DECL:
-		current = pushChild(DECLARATION);
-		current = pushChild(FUNCTION_DECL);
-	VARIABLE_DECL:
-		current = pushChild(DECLARATION);
-		current = pushChild(VARIABLE_DECL);
-		if (size == 6) {
-			pushChild(PUBLICITY_PUBLIC);
-		} else {
-			pushChuld(PUBLICITY_PRIVATE);
-		}
-	goto end;
-error:
-	printf("Error: Unknown token = ");
-	print_token(token,type,size);
-	printf("\n");
-	while(current->parent != NULL) {
-		current = current->parent;
+	current.size += 1 + parseType(lexer,ast,parseError);
+	if (*parseError) return current.size;
+	nextToken(lexer);
+	if (lexer->type != TOKENTYPE_SYM || *(lexer->token) != '=') {
+		*parseError = true;
+		return current.size;
 	}
-	freeAstNode(current);
-end:
-	freeFile(file);
-	return current;
+	nextToken(lexer);
+	current.size += parseExpression(lexer,ast,parseError,0);
+	return current.size;
+}
+
+
+uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_DECLARATION);
+
+	nextToken(lexer);
+	switch (flag) {
+		case 1:
+			current.size += parseFunctionDeclaration(lexer,ast,parseError);
+			return current.size;
+		case 2:
+		case 3:
+			current.size += parseVariableDeclaration(lexer,ast,parseError,flag);
+			return current.size;
+		case 4:
+		case 5:
+			if (flag == 4) {
+				AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PUBLIC);
+			} else {
+				AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PRIVATE);
+			}
+			current.size += 1;
+			if (lexer->type != TOKENTYPE_ID || lexer->size != 3) {
+				*parseError = true;
+				return current.size;
+			}
+			char *token = lexer->token;
+			if (token[0] == 'v' && token[1] == 'a') {
+				if (token[0] == 'r') {
+					flag = 2;
+				} else if (token[1] == 'l') {
+					flag = 3;
+				} else {
+					*parseError = true;
+					return current.size;
+				}
+				nextToken(lexer);
+				current.size += parseVariableDeclaration(lexer,ast,parseError,flag);
+			} else {
+				*parseError = true;
+				return current.size;
+			}
+
+			
+			break;
+		default:
+			*parseError = true;
+			return 0;
+	}
+	return current.size;
+	
+}
+uint64_t parseJumpStatement(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_JUMP_STATEMENT);
+	AST_createTerminalNode(ast,current,TOKENTYPE_ID,lexer->token,lexer->size);
+	current.size += 1;
+
+	const Lexer temp = *lexer;
+	switch(*lexer->token) {
+		case 'c':
+		case 'b':
+			nextToken(lexer);
+			if (lexer->type == TOKENTYPE_ID) {
+				AST_createTerminalNode(ast,current,TOKENTYPE_ID,lexer->token,lexer->size);
+			} else {
+				*lexer = temp;
+				*parseError = true;
+				return current.size;
+			}
+		case 'r':
+		case 'y':
+			current.size += parseExpression(lexer,ast,parseError,0);
+			return current.size;
+		default:
+			*parseError = true;
+			return current.size;
+	}
+		
+}
+uint64_t parseLoopStatement(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_LOOP_STATEMENT);
+
+	nextToken(lexer);
+	if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '{') {
+		current.size += parseBlock(lexer,ast,parseError);
+		if (*parseError) return current.size;
+		Lexer temp = *lexer;
+		nextToken(lexer);
+		if (lexer->type == TOKENTYPE_ID && lexer->size == 5 && memcmp(lexer->token,"while",5) == 0) {
+			nextToken(lexer);
+			current.size += parseExpression(lexer,ast,parseError,0);
+		} else {
+			*lexer = temp;
+		}
+		return current.size;
+	}
+	if (lexer->type == TOKENTYPE_ID && lexer->size == 5 && memcmp(lexer->token,"while",5) == 0) {
+		nextToken(lexer);
+		current.size += parseExpression(lexer,ast,parseError,0);
+		if (*parseError) return current.size;
+		current.size += parseBlock(lexer,ast,parseError);
+		return current.size;
+	}
+	current.size += parseType(lexer,ast,parseError);
+	return current.size;
+}
+uint64_t parseStatement(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_STATEMENT);
+
+	if (lexer->type == TOKENTYPE_EOF) return 0;
+
+	char *token = lexer->token;
+	if (lexer->type == TOKENTYPE_ID) {
+		switch(lexer->size) {
+			case 2:
+				if (token[0] == 'i' && token[1] == 'f') {
+					current.size += parseExpression(lexer,ast,parseError,1);
+				}
+				break;
+			case 3:
+				if (token[0] == 'd' && token[1] == 'e' && token[2] == 'f') {
+					current.size += parseDeclaration(lexer,ast,parseError,1);
+				} else if (token[0] == 'v' && token[1] == 'a') {
+					if (token[2] == 'r') {
+						current.size += parseDeclaration(lexer,ast,parseError,2);
+					} else if (token[2] == 'l') {
+						current.size += parseDeclaration(lexer,ast,parseError,3);
+					}
+				}
+				break;
+			case 4:
+				if (memcmp(token,"loop",4) == 0) {
+					current.size += parseLoopStatement(lexer,ast,parseError);
+				}
+				break;
+			case 5:
+				if (memcmp(token,"break",5) == 0 || memcmp(token,"yield",5) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				} else if (memcmp(token,"match",5) == 0) {
+					current.size += parseExpression(lexer,ast,parseError,2);
+				}
+				break;
+			case 6:
+				if (memcmp(token,"public",6) == 0) {
+					current.size += parseDeclaration(lexer,ast,parseError,4);
+				} else if(memcmp(token,"return",6) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				}
+				break;
+			case 7:
+				if (memcmp(token,"private",7) == 0) {
+					current.size += parseDeclaration(lexer,ast,parseError,5);
+				}
+				break;
+			case 8:
+				if (memcmp(token,"continue",8) == 0) {
+					current.size += parseJumpStatement(lexer,ast,parseError);
+				}
+			default:
+				current.size += parseExpression(lexer,ast,parseError,0);
+				break;
+		}
+	} else {
+		current.size += parseExpression(lexer,ast,parseError,3);
+	}
+	return current.size;
 
 }
+uint64_t parseStatements(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_STATEMENT);
+	while(true) {
+		current.size += parseStatement(lexer,ast,parseError);
+		if (parseError) {
+			*parseError = true;
+			return current.size;
+		}		
+		nextToken(lexer);
+		if (lexer->type == TOKENTYPE_EOF) break;
+		if (lexer->type != TOKENTYPE_SYM) {
+			*parseError = true;
+			return current.size;
+		}
+		char c = *(lexer->token);
+		if (c != ';' && c != '\n' && c != '}') {
+			*parseError = true;
+			return current.size;
+		}
+		if (c != '}') {
+			nextToken(lexer);
+		}
+	}
+	return current.size;
+}
+
+uint64_t parseBlock(Lexer *lexer, AST *ast, bool *parseError) {
+	AstNode current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_BLOCK);
+
+	if (lexer->type != TOKENTYPE_SYM && lexer->size != 1 && *(lexer->token) != '{') {
+		*parseError = true;
+		return 0;
+	}
+	nextToken(lexer);
+	if (lexer->type == TOKENTYPE_EOF) {
+		*parseError = true;
+		return 0;
+	}
+	current.size += parseStatements(lexer,ast,parseError);
+	if (*parseError || (lexer->type != TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '}')) {
+		*parseError = true;
+		return current.size;
+	}
+	return current.size;
+} 
+AST *parse(const char*fileName) {
+	File *file = loadFile(fileName);
+	if (!file) return NULL;
+	AST* ast = AST_create();
+	if (!ast) {freeFile(file); return NULL;};
+
+	Lexer lexer = {0};
+	lexer.currentChar = file->data;
+	lexer.token = NULL;
+
+	bool parseError = false;
+	
+	// create the statements node
+	parseStatements(&lexer,ast,&parseError);
+
+	if (parseError) {
+		printf("Error: Unknown token = ");
+		print_token(lexer.token,lexer.type,lexer.size);
+		printf("\n");
+	}
+	freeFile(file);
+	return ast;
+}
+
 
 int main(int argc, char **argv) {
-	long long t0 = now_ns();
-	long tokenCount = 0;
+	_Static_assert(sizeof(size_t) <= sizeof(uint64_t),
+               "size_t larger than uint64_t");
+
 	if (argc < 2) return 1;
 	printf("Compiling %s\n",argv[1]);
-	File *file = loadFile(argv[1]);
-	if (!file) return 1;
-	char *currentChar = file->data;
-	char *token = NULL;
-	Type type;
-	size_t size;
-	do {
-		size = lex(&currentChar, &token, &type);
-		//print_token(token, type, size);
-		tokenCount++;
-	} while(type != END_OF_FILE);
-	freeFile(file);
-	
-	long long dt_ns = now_ns() - t0;
-	double tokens_per_sec = (double)tokenCount * 1e9 / (double)dt_ns;
 
-	printf("Lexed %.ld tokens in %.lld nano seconds\n", tokenCount, dt_ns);
-
-	printf("%.2f tokens per second\n", tokens_per_sec);
-
-	double tokens_per_ms = (double)tokenCount * 1e6 / (double)dt_ns;
-	printf("%.4f tokens per ms\n", tokens_per_ms);
-	return 0;
-	
+	AST *ast = parse(argv[1]);
+	free(ast);
 }
