@@ -7,6 +7,8 @@
 #include <time.h> //#
 #include <assert.h>
 
+#define DEBUG
+
 typedef struct {
 	char *data;
 	uint64_t size;
@@ -338,7 +340,70 @@ uint32_t TOKENTYPE_LOOP_STATEMENT = 25;
 uint32_t TOKENTYPE_STATEMENT = 26;
 uint32_t TOKENTYPE_STATEMENTS = 27;
 uint32_t TOKENTYPE_BLOCK = 28;
+uint32_t TOKENTYPE_IMPORT_STATEMENT = 29;
+
+const char *type_name(uint32_t t) {
+	if (t == TOKENTYPE_ID) return "ID";
+	if (t == TOKENTYPE_NUM) return "NUM";
+	if (t == TOKENTYPE_HEX) return "HEX";
+	if (t == TOKENTYPE_BIN) return "BIN";
+	if (t == TOKENTYPE_FLT) return "FLT";
+	if (t == TOKENTYPE_SYM) return "SYM";
+	if (t == TOKENTYPE_CHR) return "CHR";
+	if (t == TOKENTYPE_STR) return "STR";
+	if (t == TOKENTYPE_KEY) return "KEY";
+	if (t == TOKENTYPE_EOF) return "EOF";
+	if (t == TOKENTYPE_IF_EXPRESSION) return "TOKENTYPE_IF_EXPRESSION";
+	if (t == TOKENTYPE_ELSE_EXPRESSION) return "TOKENTYPE_ELSE_EXPRESSION";
+	if (t == TOKENTYPE_MATCH_CASE) return "TOKENTYPE_MATCH_CASE";
+	if (t == TOKENTYPE_MATCH_EXPRESSION) return "TOKENTYPE_MATCH_EXPRESSION";
+	if (t == TOKENTYPE_EXPRESSION) return "TOKENTYPE_EXPRESSION";
+	if (t == TOKENTYPE_TYPES) return "TOKENTYPE_TYPES";
+	if (t == TOKENTYPE_TYPE) return "TOKENTYPE_TYPE";
+	if (t == TOKENTYPE_FUNCTION_DECLARATION) return "TOKENTYPE_FUNCTION_DECLARATION";
+	if (t == TOKENTYPE_LAMBDA) return "TOKENTYPE_LAMBDA";
+	if (t == TOKENTYPE_FUNCTION) return "TOKENTYPE_FUNCTION";
+	if (t == TOKENTYPE_VARIABLE_DECLARATION) return "TOKENTYPE_VARIABLE_DECLARATION";
+	if (t == TOKENTYPE_KEYWORD_PUBLIC) return "TOKENTYPE_KEYWORD_PUBLIC";
+	if (t == TOKENTYPE_KEYWORD_PRIVATE) return "TOKENTYPE_KEYWORD_PRIVATE";
+	if (t == TOKENTYPE_DECLARATION) return "TOKENTYPE_DECLARATION";
+	if (t == TOKENTYPE_JUMP_STATEMENT) return "TOKENTYPE_JUMP_STATEMENT";
+	if (t == TOKENTYPE_LOOP_STATEMENT) return "TOKENTYPE_LOOP_STATEMENT";
+	if (t == TOKENTYPE_STATEMENT) return "TOKENTYPE_STATEMENT";
+	if (t == TOKENTYPE_STATEMENTS) return "TOKENTYPE_STATEMENTS";
+	if (t == TOKENTYPE_BLOCK) return "TOKENTYPE_BLOCK";
+	if (t == TOKENTYPE_IMPORT_STATEMENT) return "TOKENTYPE_IMPORT_STATEMENT";
+	return "UNKNOWN";
+}
+void printToken(const Lexer *lexer) {
+	printf("TOKEN{.type=%s, .value='", type_name(lexer->type));
+	for (uint64_t i = 0; i < lexer->size; i++) {
+		switch (lexer->token[i]) {
+		case '\n': printf("\\n"); break;
+		case '\t': printf("\\t"); break;
+		case '\r': printf("\\r"); break;
+		case '\v': printf("\\v"); break;
+		case '\f': printf("\\f"); break;
+		case '\\': printf("\\\\"); break;
+		default:
+			putchar(lexer->token[i]);
+		}
+
+	}
+	printf("'}\n");
+}
+#ifdef DEBUG
+void lex(Lexer *lexer);
+void nextToken(Lexer *lexer)
+{
+	lex(lexer);
+	printToken(lexer);
+}
+void lex(Lexer *lexer) {
+#else
 void nextToken(Lexer *lexer) {
+#endif
+
 	lexer->type = TOKENTYPE_EOF;
 	lexer->size = 0;
 	char nextChar;
@@ -513,37 +578,9 @@ void nextToken(Lexer *lexer) {
 		}
 	}
 }
-const char *type_name(uint32_t t) {
-	if (t == TOKENTYPE_ID) return "ID";
-	if (t == TOKENTYPE_NUM) return "NUM";
-	if (t == TOKENTYPE_HEX) return "HEX";
-	if (t == TOKENTYPE_BIN) return "BIN";
-	if (t == TOKENTYPE_FLT) return "FLT";
-	if (t == TOKENTYPE_SYM) return "SYM";
-	if (t == TOKENTYPE_CHR) return "CHR";
-	if (t == TOKENTYPE_STR) return "STR";
-	if (t == TOKENTYPE_KEY) return "KEY";
-	if (t == TOKENTYPE_EOF) return "EOF";
-	return "UNKNOWN";
-}
 
-static void print_token(char* token, uint32_t type, uint64_t size) {
-	printf("TOKEN{.type=%s, .value='", type_name(type));
-	for (uint64_t i = 0; i < size; i++) {
-		switch (token[i]) {
-			case '\n': printf("\\n"); break;
-			case '\t': printf("\\t"); break;
-			case '\r': printf("\\r"); break;
-			case '\v': printf("\\v"); break;
-			case '\f': printf("\\f"); break;
-			case '\\': printf("\\\\"); break;
-			default:
-			   putchar(token[i]);	   
-		}
 
-    	}
-	printf("'}");
-}
+
 static inline long long now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -608,53 +645,82 @@ bool AST_createNode(AST *ast) {
 	ast->count++;
         return true;
 }
-static inline AstNode AST_getNode(AST *ast) {
-	return ast->nodes[ast->count - 1];
+static AstNode *AST_getNode(AST *ast) {
+	if (ast->count <= 0) AST_createNode(ast);
+	return &ast->nodes[ast->count - 1];
 }
-static inline void AST_createNonTerminalNode(AST *ast, AstNode current, uint32_t tokenType) {
-	current.astNodeType = AST_NODE_TYPE_NON_TERMINAL;
-	current.tokenType = tokenType;
-	current.size = 1;
+static void AST_createNonTerminalNode(AST *ast, AstNode *current, uint32_t tokenType) {
+	current->astNodeType = AST_NODE_TYPE_NON_TERMINAL;
+	current->tokenType = tokenType;
+	current->size = 1;
 	AST_createNode(ast);
 }
-static inline void AST_createTerminalNode(AST *ast, AstNode current, uint32_t tokenType, char *token, uint64_t tokenSize) {
-	current.astNodeType = AST_NODE_TYPE_TERMINAL;
-	current.tokenType = tokenType;
+static void AST_createTerminalNode(AST *ast, AstNode *current, uint32_t tokenType, char *token, uint64_t tokenSize) {
+	current->astNodeType = AST_NODE_TYPE_TERMINAL;
+	current->tokenType = tokenType;
 
-	current.token = token;
-	current.tokenSize = tokenSize;
+	current->token = token;
+	current->tokenSize = tokenSize;
 
 	AST_createNode(ast);
 }
 uint64_t parseBlock(Lexer *lexer, AST *ast, bool *parseError); 
 uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag);
+#ifdef DEBUG
+uint64_t debug_parseIfExpression(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseIfExpression(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing IfExpression...\n");
+	const uint64_t size = debug_parseIfExpression(lexer,ast,parseError);
+	printf("Reducing IfExpression\n");
+	return size;
+}
+uint64_t debug_parseIfExpression(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
 uint64_t parseIfExpression(Lexer* lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+#endif
+
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_IF_EXPRESSION);
 
-	current.size += 1;
-	current.size += parseExpression(lexer,ast,parseError,0);
-	if (*parseError) return current.size;
-	current.size += parseBlock(lexer,ast,parseError);
-	if (*parseError) return current.size;
+	current->size += 1;
+	current->size += parseExpression(lexer,ast,parseError,0);
+	if (*parseError) return current->size;
+	current->size += parseBlock(lexer,ast,parseError);
+	if (*parseError) return current->size;
 	Lexer temp = *lexer;
 	nextToken(&temp);
 	if (temp.type == TOKENTYPE_ID && temp.size == 5 && memcmp(temp.token,"else",4) == 0) {
 		*lexer = temp;
 		nextToken(lexer);
-		AstNode elseBranch = AST_getNode(ast);
+		AstNode *elseBranch = AST_getNode(ast);
 		AST_createNonTerminalNode(ast,elseBranch,TOKENTYPE_ELSE_EXPRESSION);
-		elseBranch.size = parseBlock(lexer,ast,parseError);
-		if (*parseError) return current.size;
-		current.size += elseBranch.size;
+		elseBranch->size = parseBlock(lexer,ast,parseError);
+		if (*parseError) return current->size;
+		current->size += elseBranch->size;
 	}
-	return current.size;
+	return current->size;
 }
 
 
 uint64_t parseJumpStatement(Lexer *lexer, AST *ast, bool *parseError);
-uint64_t parseMatchCase(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+
+#ifdef DEBUG
+uint64_t debug_parseMatchCase(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseMatchCase(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing MatchCase...\n");
+	const uint64_t size = debug_parseMatchCase(lexer,ast,parseError);
+	printf("Reducing MatchCase\n");
+	return size;
+}
+uint64_t debug_parseMatchCase(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseMatchCase(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_MATCH_CASE);
 
 	if (lexer->type == TOKENTYPE_SYM) {
@@ -663,12 +729,12 @@ uint64_t parseMatchCase(Lexer *lexer, AST *ast, bool *parseError) {
 	}
 
 	nextToken(lexer);
-	current.size += parseExpression(lexer,ast,parseError,0);
-	if (*parseError) return current.size;
+	current->size += parseExpression(lexer,ast,parseError,0);
+	if (*parseError) return current->size;
 	
 	if (lexer->type != TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == ':') {
 		*parseError = true;
-		return current.size;
+		return current->size;
 	}
 	nextToken(lexer);
 
@@ -678,87 +744,130 @@ uint64_t parseMatchCase(Lexer *lexer, AST *ast, bool *parseError) {
 		switch(lexer->size) {
 			case 2:
 				if (token[0] == 'i' && token[1] == 'f') {
-					current.size += parseExpression(lexer,ast,parseError,1);
+					current->size += parseExpression(lexer,ast,parseError,1);
 				}
 				break;
 			case 4:
 				if (memcmp(token,"loop",4) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
 				}
 				break;
 			case 5:
 				if (memcmp(token,"break",5) == 0 || memcmp(token,"yield",5) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
 				} else if (memcmp(token,"match",5) == 0) {
-					current.size += parseExpression(lexer,ast,parseError,2);
+					current->size += parseExpression(lexer,ast,parseError,2);
 				}
 				break;
 			case 6: 
 				if(memcmp(token,"return",6) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
 				}
 				break;
 			default:
-				current.size += parseExpression(lexer,ast,parseError,0);
+				current->size += parseExpression(lexer,ast,parseError,0);
 		}
 	} else if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *token == '{') {
-		current.size += parseBlock(lexer,ast,parseError);
+		current->size += parseBlock(lexer,ast,parseError);
 	} else {
-		current.size += parseExpression(lexer,ast,parseError,0);
+		current->size += parseExpression(lexer,ast,parseError,0);
 	}
-	return current.size;
+	return current->size;
 }
-uint64_t parseMatchExpression(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+
+#ifdef DEBUG
+uint64_t debug_parseMatchExpression(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseMatchExpression(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing MatchExpression...\n");
+	const uint64_t size = debug_parseMatchExpression(lexer,ast,parseError);
+	printf("Reducing MatchExpression\n");
+	return size;
+}
+uint64_t debug_parseMatchExpression(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseMatchExpression(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_MATCH_EXPRESSION);
-	current.size += parseExpression(lexer,ast,parseError,0);
+	current->size += parseExpression(lexer,ast,parseError,0);
 
 	if (lexer->type != TOKENTYPE_SYM && lexer->size != 1 && *(lexer->token) != '{') {
 		*parseError = true;
 		return 0;
 	}
 	while(true) {
-		current.size += parseMatchCase(lexer,ast,parseError);
-		if (parseError) return current.size;
+		current->size += parseMatchCase(lexer,ast,parseError);
+		if (parseError) return current->size;
 		nextToken(lexer);
 		if (lexer->type == TOKENTYPE_EOF) {
 			*parseError = true;
-			return current.size;
+			return current->size;
 		}
 		char c = *(lexer->token);
 		if (c != '\n' && c != '}') {
 			*parseError = true;
-			return current.size;
+			return current->size;
 		}
 		nextToken(lexer);
 		if (*(lexer->token) == '}') break;
 	}
-	return current.size;
+	return current->size;
 }
+
+#ifdef DEBUG
+uint64_t debug_parseExpression(Lexer* lexer, AST *ast, bool *parseError, uint32_t flag);
+
+uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag)
+{
+	printf("Parsing Expression...\n");
+	const uint64_t size = debug_parseExpression(lexer,ast,parseError,flag);
+	printf("Reducing Expression\n");
+	return size;
+}
+
+uint64_t debug_parseExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#else
+
 uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
-	AstNode current = AST_getNode(ast);
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_EXPRESSION);
 	switch (flag) {
 		case 0:
-			current.size += parseMatchExpression(lexer,ast,parseError);
+			current->size += parseMatchExpression(lexer,ast,parseError);
 			break;
 		case 1:
-			current.size += parseIfExpression(lexer,ast,parseError);
+			current->size += parseIfExpression(lexer,ast,parseError);
 		case 2:
-			current.size += parseExpression(lexer,ast,parseError,0);
+			current->size += parseExpression(lexer,ast,parseError,0);
 		default:
 			*parseError = true;
 			return 0;
 	}
-	return current.size;
+	return current->size;
 }
 uint64_t parseType(Lexer *lexer, AST *ast, bool *parseError);
+
+#ifdef DEBUG
+uint64_t debug_parseTypes(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseTypes(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing Types...\n");
+	const uint64_t size = debug_parseTypes(lexer,ast,parseError);
+	printf("Reducing Types\n");
+	return size;
+}
+uint64_t debug_parseTypes(Lexer* lexer, AST *ast, bool *parseError) {
+#else
 uint64_t parseTypes(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_TYPES);
 	while (true) {
-		current.size += parseType(lexer,ast,parseError);
-		if (*parseError) return current.size;
+		current->size += parseType(lexer,ast,parseError);
+		if (*parseError) return current->size;
 		Lexer temp = *lexer;
 		nextToken(lexer);
 		if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *(lexer->token) != ',') {
@@ -766,44 +875,69 @@ uint64_t parseTypes(Lexer *lexer, AST *ast, bool *parseError) {
 			break;
 		}
 	}
-	return current.size;
+	return current->size;
 }
+
+#ifdef DEBUG
+uint64_t debug_parseType(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseType(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing Type...\n");
+	const uint64_t size = debug_parseType(lexer,ast,parseError);
+	printf("Reducing Type\n");
+	return size;
+}
+uint64_t debug_parseType(Lexer* lexer, AST *ast, bool *parseError) {
+#else
 uint64_t parseType(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+#endif
+AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_TYPE);
 	if (lexer->type == TOKENTYPE_ID) {
 		AST_createTerminalNode(ast,AST_getNode(ast),TOKENTYPE_ID,lexer->token,lexer->size);
-		current.size += 1;
+		current->size += 1;
 		nextToken(lexer);
 		if (lexer->type != TOKENTYPE_ID) {
 			*parseError = true;
 			return 0;
 		}
-		current.size += 1;
-		return current.size;
+		current->size += 1;
+		return current->size;
 	}
 	if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '(') {
-		current.size += parseTypes(lexer,ast,parseError);
+		current->size += parseTypes(lexer,ast,parseError);
 		nextToken(lexer);
 		if (lexer->type != TOKENTYPE_SYM || lexer->size != 0 || *(lexer->token) == ')') {
 			*parseError = true;
-			return current.size;
+			return current->size;
 		}
 		nextToken(lexer);
 		if (lexer->type != TOKENTYPE_ID) {
 			*parseError = true;
-			return current.size;
+			return current->size;
 		}
-		current.size += 1;
-		return current.size;
+		current->size += 1;
+		return current->size;
 	}
 	*parseError = true;
 	return 0;
 }
+
+#ifdef DEBUG
+uint64_t debug_parseFunctionDeclaration(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseFunctionDeclaration(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing FunctionDeclaration...\n");
+	const uint64_t size = debug_parseFunctionDeclaration(lexer,ast,parseError);
+	printf("Reducing FunctionDeclaration\n");
+	return size;
+}
+uint64_t debug_parseFunctionDeclaration(Lexer* lexer, AST *ast, bool *parseError) {
+#else
 uint64_t parseFunctionDeclaration(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+#endif
+AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_FUNCTION_DECLARATION);
-	nextToken(lexer);
 	if (lexer->type != TOKENTYPE_ID) {
 		*parseError = true;
 		return 0;
@@ -813,30 +947,52 @@ uint64_t parseFunctionDeclaration(Lexer *lexer, AST *ast, bool *parseError) {
 		*parseError = true;
 		return 0;
 	}
-	if (*(lexer->token) == '=') {
+
+	if (*lexer->token == '=') {
 		nextToken(lexer);
 		AST_createNonTerminalNode(ast,current,TOKENTYPE_LAMBDA);
 	} else {
 		AST_createNonTerminalNode(ast,current,TOKENTYPE_FUNCTION);
 	}
 
-	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *(lexer->token) == '(') {
+	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *lexer->token != '(') {
 		*parseError = true;
 		return 1;
 	}
-	current.size += 1 + parseType(lexer,ast,parseError);
-	if (*parseError) return current.size;
-	nextToken(lexer);	
-	current.size += parseTypes(lexer,ast,parseError);
-	if (*parseError) return current.size;
+
+	nextToken(lexer);
+	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || lexer->token[0] != ')')
+	{
+		current->size += parseTypes(lexer,ast,parseError);
+		if (*parseError) return current->size;
+	}
+
 	nextToken(lexer);
 	if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *lexer->token != ')') {
 		*parseError = true;
+		return current->size;
 	}
-	return current.size;
+
+	nextToken(lexer);
+	current->size += parseBlock(lexer,ast,parseError);
+
+	return current->size;
 }
+
+#ifdef DEBUG
+uint64_t debug_parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag);
 uint64_t parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
-	AstNode current = AST_getNode(ast);
+	printf("Parsing VariableDeclaration...\n");
+	const uint64_t size = debug_parseVariableDeclaration(lexer,ast,parseError,flag);
+	printf("Reducing VariableDeclaration\n");
+	return size;
+}
+uint64_t debug_parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#else
+
+uint64_t parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#endif
+AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_VARIABLE_DECLARATION);
 
 	if (flag == 2) {
@@ -844,32 +1000,45 @@ uint64_t parseVariableDeclaration(Lexer *lexer, AST *ast, bool *parseError, cons
 	} else {
 		AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PRIVATE);
 	}	
-	current.size += 1 + parseType(lexer,ast,parseError);
-	if (*parseError) return current.size;
+	current->size += 1 + parseType(lexer,ast,parseError);
+	if (*parseError) return current->size;
 	nextToken(lexer);
 	if (lexer->type != TOKENTYPE_SYM || *(lexer->token) != '=') {
 		*parseError = true;
-		return current.size;
+		return current->size;
 	}
 	nextToken(lexer);
-	current.size += parseExpression(lexer,ast,parseError,0);
-	return current.size;
+	current->size += parseExpression(lexer,ast,parseError,0);
+	return current->size;
 }
 
 
+#ifdef DEBUG
+uint64_t debug_parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag);
+
 uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag) {
-	AstNode current = AST_getNode(ast);
+	printf("Parsing Declaration...\n");
+	const uint64_t size = debug_parseDeclaration(lexer,ast,parseError,flag);
+	printf("Reducing Declaration\n");
+	return size;
+}
+uint64_t debug_parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag) {
+#else
+
+uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t flag) {
+#endif
+AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_DECLARATION);
 
 	nextToken(lexer);
 	switch (flag) {
 		case 1:
-			current.size += parseFunctionDeclaration(lexer,ast,parseError);
-			return current.size;
+			current->size += parseFunctionDeclaration(lexer,ast,parseError);
+			return current->size;
 		case 2:
 		case 3:
-			current.size += parseVariableDeclaration(lexer,ast,parseError,flag);
-			return current.size;
+			current->size += parseVariableDeclaration(lexer,ast,parseError,flag);
+			return current->size;
 		case 4:
 		case 5:
 			if (flag == 4) {
@@ -877,10 +1046,10 @@ uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t fla
 			} else {
 				AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_KEYWORD_PRIVATE);
 			}
-			current.size += 1;
+			current->size += 1;
 			if (lexer->type != TOKENTYPE_ID || lexer->size != 3) {
 				*parseError = true;
-				return current.size;
+				return current->size;
 			}
 			char *token = lexer->token;
 			if (token[0] == 'v' && token[1] == 'a') {
@@ -890,13 +1059,13 @@ uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t fla
 					flag = 3;
 				} else {
 					*parseError = true;
-					return current.size;
+					return current->size;
 				}
 				nextToken(lexer);
-				current.size += parseVariableDeclaration(lexer,ast,parseError,flag);
+				current->size += parseVariableDeclaration(lexer,ast,parseError,flag);
 			} else {
 				*parseError = true;
-				return current.size;
+				return current->size;
 			}
 
 			
@@ -905,14 +1074,27 @@ uint64_t parseDeclaration(Lexer *lexer, AST *ast, bool *parseError, uint32_t fla
 			*parseError = true;
 			return 0;
 	}
-	return current.size;
-	
+	return current->size;
 }
-uint64_t parseJumpStatement(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+
+#ifdef DEBUG
+uint64_t debug_parseJumpStatement(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseJumpStatement(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing JumpStatement...\n");
+	const uint64_t size = debug_parseJumpStatement(lexer,ast,parseError);
+	printf("Reducing JumpStatement\n");
+	return size;
+}
+uint64_t debug_parseJumpStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseJumpStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_JUMP_STATEMENT);
 	AST_createTerminalNode(ast,current,TOKENTYPE_ID,lexer->token,lexer->size);
-	current.size += 1;
+	current->size += 1;
 
 	const Lexer temp = *lexer;
 	switch(*lexer->token) {
@@ -924,48 +1106,107 @@ uint64_t parseJumpStatement(Lexer *lexer, AST *ast, bool *parseError) {
 			} else {
 				*lexer = temp;
 				*parseError = true;
-				return current.size;
+				return current->size;
 			}
 		case 'r':
 		case 'y':
-			current.size += parseExpression(lexer,ast,parseError,0);
-			return current.size;
+			current->size += parseExpression(lexer,ast,parseError,0);
+			return current->size;
 		default:
 			*parseError = true;
-			return current.size;
+			return current->size;
 	}
 		
 }
-uint64_t parseLoopStatement(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+
+#ifdef DEBUG
+uint64_t debug_parseLoopStatement(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseLoopStatement(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing LoopStatement...\n");
+	const uint64_t size = debug_parseLoopStatement(lexer,ast,parseError);
+	printf("Reducing LoopStatement\n");
+	return size;
+}
+uint64_t debug_parseLoopStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseLoopStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_LOOP_STATEMENT);
 
 	nextToken(lexer);
 	if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '{') {
-		current.size += parseBlock(lexer,ast,parseError);
-		if (*parseError) return current.size;
+		current->size += parseBlock(lexer,ast,parseError);
+		if (*parseError) return current->size;
 		Lexer temp = *lexer;
 		nextToken(lexer);
 		if (lexer->type == TOKENTYPE_ID && lexer->size == 5 && memcmp(lexer->token,"while",5) == 0) {
 			nextToken(lexer);
-			current.size += parseExpression(lexer,ast,parseError,0);
+			current->size += parseExpression(lexer,ast,parseError,0);
 		} else {
 			*lexer = temp;
 		}
-		return current.size;
+		return current->size;
 	}
 	if (lexer->type == TOKENTYPE_ID && lexer->size == 5 && memcmp(lexer->token,"while",5) == 0) {
 		nextToken(lexer);
-		current.size += parseExpression(lexer,ast,parseError,0);
-		if (*parseError) return current.size;
-		current.size += parseBlock(lexer,ast,parseError);
-		return current.size;
+		current->size += parseExpression(lexer,ast,parseError,0);
+		if (*parseError) return current->size;
+		current->size += parseBlock(lexer,ast,parseError);
+		return current->size;
 	}
-	current.size += parseType(lexer,ast,parseError);
-	return current.size;
+	current->size += parseType(lexer,ast,parseError);
+	return current->size;
 }
-uint64_t parseStatement(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+
+#ifdef DEBUG
+uint64_t debug_parseImportStatement(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseImportStatement(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing ImportStatement...\n");
+	const uint64_t size = debug_parseImportStatement(lexer,ast,parseError);
+	printf("Reducing ImportStatement\n");
+	return size;
+}
+uint64_t debug_parseImportStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseImportStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_IMPORT_STATEMENT);
+	nextToken(lexer);
+	if (lexer->type == TOKENTYPE_ID) {
+		AST_createTerminalNode(ast,current,TOKENTYPE_ID,lexer->token,lexer->size);
+		current->size += 1;
+		return current->size;
+	}
+	if (lexer->type == TOKENTYPE_STR)
+	{
+		AST_createTerminalNode(ast,current,TOKENTYPE_STR,lexer->token,lexer->size);
+		current->size += 1;
+		return current->size;
+	}
+	*parseError = true;
+	return 0;
+}
+#ifdef DEBUG
+uint64_t debug_parseStatement(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseStatement(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing Statement...\n");
+	const uint64_t size = debug_parseStatement(lexer,ast,parseError);
+	printf("Reducing Statement\n");
+	return size;
+}
+uint64_t debug_parseStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseStatement(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_STATEMENT);
 
 	if (lexer->type == TOKENTYPE_EOF) return 0;
@@ -975,104 +1216,130 @@ uint64_t parseStatement(Lexer *lexer, AST *ast, bool *parseError) {
 		switch(lexer->size) {
 			case 2:
 				if (token[0] == 'i' && token[1] == 'f') {
-					current.size += parseExpression(lexer,ast,parseError,1);
+					current->size += parseExpression(lexer,ast,parseError,1);
 				}
 				break;
 			case 3:
 				if (token[0] == 'd' && token[1] == 'e' && token[2] == 'f') {
-					current.size += parseDeclaration(lexer,ast,parseError,1);
+					current->size += parseDeclaration(lexer,ast,parseError,1);
 				} else if (token[0] == 'v' && token[1] == 'a') {
 					if (token[2] == 'r') {
-						current.size += parseDeclaration(lexer,ast,parseError,2);
+						current->size += parseDeclaration(lexer,ast,parseError,2);
 					} else if (token[2] == 'l') {
-						current.size += parseDeclaration(lexer,ast,parseError,3);
+						current->size += parseDeclaration(lexer,ast,parseError,3);
 					}
 				}
 				break;
 			case 4:
 				if (memcmp(token,"loop",4) == 0) {
-					current.size += parseLoopStatement(lexer,ast,parseError);
+					current->size += parseLoopStatement(lexer,ast,parseError);
 				}
 				break;
 			case 5:
 				if (memcmp(token,"break",5) == 0 || memcmp(token,"yield",5) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
 				} else if (memcmp(token,"match",5) == 0) {
-					current.size += parseExpression(lexer,ast,parseError,2);
+					current->size += parseExpression(lexer,ast,parseError,2);
 				}
 				break;
 			case 6:
 				if (memcmp(token,"public",6) == 0) {
-					current.size += parseDeclaration(lexer,ast,parseError,4);
+					current->size += parseDeclaration(lexer,ast,parseError,4);
 				} else if(memcmp(token,"return",6) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
+				} else if (memcmp(token,"import",6) == 0) {
+					current->size += parseImportStatement(lexer,ast,parseError);
 				}
 				break;
 			case 7:
 				if (memcmp(token,"private",7) == 0) {
-					current.size += parseDeclaration(lexer,ast,parseError,5);
+					current->size += parseDeclaration(lexer,ast,parseError,5);
 				}
 				break;
 			case 8:
 				if (memcmp(token,"continue",8) == 0) {
-					current.size += parseJumpStatement(lexer,ast,parseError);
+					current->size += parseJumpStatement(lexer,ast,parseError);
 				}
 			default:
-				current.size += parseExpression(lexer,ast,parseError,0);
+				current->size += parseExpression(lexer,ast,parseError,0);
 				break;
 		}
 	} else {
-		current.size += parseExpression(lexer,ast,parseError,3);
+		current->size += parseExpression(lexer,ast,parseError,3);
 	}
-	return current.size;
+	return current->size;
 
 }
-uint64_t parseStatements(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
-	AST_createNonTerminalNode(ast,current,TOKENTYPE_STATEMENT);
+#ifdef DEBUG
+uint64_t debug_parseStatements(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseStatements(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing Statements...\n");
+	const uint64_t size = debug_parseStatements(lexer,ast,parseError);
+	printf("Reducing Statements\n");
+	return size;
+}
+uint64_t debug_parseStatements(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseStatements(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+
+	AstNode* current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_STATEMENTS);
+	printf("%s %llu, ",type_name(ast->nodes[0].tokenType),ast->nodes[0].size);
 	while(true) {
-		current.size += parseStatement(lexer,ast,parseError);
-		if (parseError) {
+		current->size += parseStatement(lexer,ast,parseError);
+		if (*parseError) {
 			*parseError = true;
-			return current.size;
+			return current->size;
 		}		
 		nextToken(lexer);
-		if (lexer->type == TOKENTYPE_EOF) break;
-		if (lexer->type != TOKENTYPE_SYM) {
-			*parseError = true;
-			return current.size;
-		}
-		char c = *(lexer->token);
-		if (c != ';' && c != '\n' && c != '}') {
-			*parseError = true;
-			return current.size;
-		}
-		if (c != '}') {
+		while (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && (*lexer->token == ';' || *lexer->token == '\n'))
+		{
 			nextToken(lexer);
 		}
+		if (lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *lexer->token == '}') {
+			return current->size;
+		}
+		if (lexer->type == TOKENTYPE_EOF) break;
 	}
-	return current.size;
+	return current->size;
 }
 
-uint64_t parseBlock(Lexer *lexer, AST *ast, bool *parseError) {
-	AstNode current = AST_getNode(ast);
+#ifdef DEBUG
+uint64_t debug_parseBlock(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parseBlock(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing Block...\n");
+	const uint64_t size = debug_parseBlock(lexer,ast,parseError);
+	printf("Reducing Block\n");
+	return size;
+}
+uint64_t debug_parseBlock(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseBlock(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_BLOCK);
 
 	if (lexer->type != TOKENTYPE_SYM && lexer->size != 1 && *(lexer->token) != '{') {
 		*parseError = true;
 		return 0;
 	}
-	nextToken(lexer);
-	if (lexer->type == TOKENTYPE_EOF) {
-		*parseError = true;
-		return 0;
+	Lexer temp = *lexer;
+	nextToken(&temp);
+	if (temp.type != TOKENTYPE_SYM || temp.size != 1 || *temp.token != '}') {
+		current->size += parseStatements(lexer,ast,parseError);
+		if (*parseError || !(lexer->type == TOKENTYPE_SYM && lexer->size == 1 && *lexer->token == '}')) {
+			*parseError = true;
+			return current->size;
+		}
 	}
-	current.size += parseStatements(lexer,ast,parseError);
-	if (*parseError || (lexer->type != TOKENTYPE_SYM && lexer->size == 1 && *(lexer->token) == '}')) {
-		*parseError = true;
-		return current.size;
-	}
-	return current.size;
+	*lexer = temp;
+
+	return current->size;
 } 
 AST *parse(const char*fileName) {
 	File *file = loadFile(fileName);
@@ -1087,12 +1354,20 @@ AST *parse(const char*fileName) {
 	bool parseError = false;
 	
 	// create the statements node
+	nextToken(&lexer);
 	parseStatements(&lexer,ast,&parseError);
+
+	for (int i = 0; i < ast->count; i++)
+	{
+		printf("%s %llu, ",type_name(ast->nodes[i].tokenType),ast->nodes[i].size);
+	}
 
 	if (parseError) {
 		printf("Error: Unknown token = ");
-		print_token(lexer.token,lexer.type,lexer.size);
+		printToken(&lexer);
 		printf("\n");
+	} else 	{
+		printf("Successfully parsed file!\n");
 	}
 	freeFile(file);
 	return ast;
@@ -1103,7 +1378,11 @@ int main(int argc, char **argv) {
 	_Static_assert(sizeof(size_t) <= sizeof(uint64_t),
                "size_t larger than uint64_t");
 
-	if (argc < 2) return 1;
+	if (argc < 2)
+	{
+		printf("Usage: %s <file>\n", argv[0]);
+		return 1;
+	}
 	printf("Compiling %s\n",argv[1]);
 
 	AST *ast = parse(argv[1]);

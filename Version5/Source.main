@@ -1,0 +1,3 @@
+import "Hello vro"
+def println(void arg) { }
+#a comment#
