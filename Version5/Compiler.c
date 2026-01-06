@@ -304,12 +304,6 @@ static inline uint64_t simd_zero(const char *p) {
     }
 }
 
-typedef struct {
-	char *currentChar;
-	char *token;
-	uint32_t type;
-	uint64_t size;
-} Lexer;
 uint32_t TOKENTYPE_NULL =  0;
 uint32_t TOKENTYPE_ID   =  1;
 uint32_t TOKENTYPE_NUM  =  2;
@@ -375,6 +369,13 @@ const char *type_name(uint32_t t) {
 	if (t == TOKENTYPE_IMPORT_STATEMENT) return "TOKENTYPE_IMPORT_STATEMENT";
 	return "UNKNOWN";
 }
+
+typedef struct {
+	char *currentChar;
+	char *token;
+	uint32_t type;
+	uint64_t size;
+} Lexer;
 void printToken(const Lexer *lexer) {
 	printf("TOKEN{.type=%s, .value='", type_name(lexer->type));
 	for (uint64_t i = 0; i < lexer->size; i++) {
@@ -415,14 +416,11 @@ void nextToken(Lexer *lexer) {
 		switch(c) {
 			case '\0':
 				return;
-				//{}()[].;~\n\r|&+-><=*!/%^\?%`^
+				//,{}()[].;~\n\r|&+-><=*!/%^\?%`^
 				//{ and }
 				//( and )
 				//[ and ]
-				//.
-				//;
-				//~
-				//\n
+				//. and .. and ; and ~ and \n and ,
 				//| and || and |=
 				//& and && and &=
 				//+ and ++ and +=
@@ -468,13 +466,22 @@ void nextToken(Lexer *lexer) {
 				}
 				lexer->size = 1;
 				return;
+			case '.':
+				lexer->type = TOKENTYPE_SYM;
+				lexer->currentChar += 1;
+				if (*lexer->currentChar == '.') {
+					lexer->currentChar += 1;
+					lexer->size = 2;
+					return;
+				}
+				lexer->size = 1;
+				return;
 			case '{':
 			case '}':
 			case '(':
 			case ')':
 			case '[':
 			case ']':
-			case '.':
 			case '~':
 			case ';':
 			case ',':
@@ -586,6 +593,10 @@ static inline long long now_ns(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
+
+uint32_t AST_NODE_TYPE_NULL = 0;
+uint32_t AST_NODE_TYPE_TERMINAL = 1;
+uint32_t AST_NODE_TYPE_NON_TERMINAL = 2;
 typedef struct {
         char *token;
         uint64_t tokenSize;
@@ -627,26 +638,49 @@ bool AST_addNode(AST *ast, AstNode node) {
 	ast->nodes[ast->count++] = node;
 	return true;
 }
-uint32_t AST_NODE_TYPE_NULL = 0;
-uint32_t AST_NODE_TYPE_TERMINAL = 1;
-uint32_t AST_NODE_TYPE_NON_TERMINAL = 2;
+bool AST_resize(AST *ast) {
+    if (ast->capacity > SIZE_MAX / 2) return false;
+
+    size_t new_cap = ast->capacity * 2;
+    if (new_cap > SIZE_MAX / sizeof *ast->nodes) return false;
+
+    AstNode *nodes = realloc(ast->nodes, new_cap * sizeof *ast->nodes);
+    if (!nodes) return false;
+
+    ast->nodes = nodes;
+    ast->capacity = new_cap;
+    return true;
+}
 
 bool AST_createNode(AST *ast) {
         if (!ast) return false;
         if (ast->count >= ast->capacity) {
-                ast->capacity *= 2;
-                if (ast->capacity > SIZE_MAX / sizeof *ast->nodes) return false;
-                AstNode *nodes = realloc(ast->nodes, ast->capacity * sizeof *ast->nodes);
-                if (!nodes) return false;
-                ast->nodes = nodes;
-        }
+		if (!AST_resize(ast)) return false;
+	} 
 
 	ast->nodes[ast->count] = (AstNode){0};
 	ast->count++;
         return true;
 }
+bool AST_insertNode(AST *ast, AstNode node, uint64_t index) {
+    if (!ast) return false;
+    if (index > ast->count) return false;
+
+    if (ast->count >= ast->capacity) {
+        if (!AST_resize(ast)) return false;
+    }
+
+    memmove(&ast->nodes[index + 1],
+            &ast->nodes[index],
+            (ast->count - index) * sizeof *ast->nodes);
+
+    ast->nodes[index] = node;
+    ast->count++;
+    return true;
+}
+
 static AstNode *AST_getNode(AST *ast) {
-	if (ast->count <= 0) AST_createNode(ast);
+	if (ast->count == 0) AST_createNode(ast);
 	return &ast->nodes[ast->count - 1];
 }
 static void AST_createNonTerminalNode(AST *ast, AstNode *current, uint32_t tokenType) {
@@ -816,6 +850,1398 @@ uint64_t parseMatchExpression(Lexer* lexer, AST *ast, bool *parseError) {
 	return current->size;
 }
 
+uint32_t PARSE_EXPRESSION_DEFAULT = 0;
+uint32_t PARSE_EXPRESSION_ID 	  = 1;
+uint32_t PARSE_EXPRESSION_MATCH   = 2;
+uint32_t PARSE_EXPRESSION_IF 	  = 3;
+
+
+
+
+
+#ifdef DEBUG
+uint64_t debug_parse(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parse(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing ...\n");
+	const uint64_t size = debug_parse(lexer,ast,parseError);
+	printf("Reducing \n");
+	return size;
+}
+uint64_t debug_parse(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parse(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+}
+
+static const uint8_t prefixBindingPower[235] {
+	0, // 0: ' !'
+	0, // 1: UNDEFINED
+	0, // 2: UNDEFINED
+	0, // 3: '*='
+	0, // 4: ' %'
+	0, // 5: ' &'
+	0, // 6: '++'
+	0, // 7: ' ('
+	0, // 8: ' )'
+	0, // 9: ' *'
+	0, // 10: ' +'
+	0, // 11: ' ,' 
+	0, // 12: ' -'
+	0, // 13: ' .'
+	0, // 14: ' /'
+	0, // 15: UNDEFINED
+	0, // 16: UNDEFINED
+	0, // 17: UNDEFINED
+	0, // 18: UNDEFINED
+	0, // 19: UNDEFINED
+	0, // 20: UNDEFINED
+	0, // 21: UNDEFINED
+	0, // 22: UNDEFINED
+	0, // 23: UNDEFINED
+	0, // 24: '+='
+	0, // 25: UNDEFINED
+	0, // 26: ' ;'
+	0, // 27: ' <'
+	0, // 28: ' ='
+	0, // 29: ' >'
+	0, // 30: UNDEFINED
+	0, // 31: UNDEFINED
+	0, // 32: UNDEFINED
+	0, // 33: UNDEFINED
+	0, // 34: UNDEFINED
+	0, // 35: UNDEFINED
+	0, // 36: UNDEFINED
+	0, // 37: UNDEFINED
+	0, // 38: UNDEFINED
+	0, // 39: UNDEFINED
+	0, // 40: UNDEFINED
+	0, // 41: UNDEFINED
+	0, // 42: UNDEFINED
+	0, // 43: UNDEFINED
+	0, // 44: UNDEFINED
+	0, // 45: UNDEFINED
+	0, // 46: UNDEFINED
+	0, // 47: UNDEFINED
+	0, // 48: UNDEFINED
+	0, // 49: '!='
+	0, // 50: '--'
+	0, // 51: UNDEFINED
+	0, // 52: UNDEFINED
+	0, // 53: UNDEFINED
+	0, // 54: UNDEFINED
+	0, // 55: UNDEFINED
+	0, // 56: UNDEFINED
+	0, // 57: UNDEFINED
+	0, // 58: ' ['
+	0, // 59: UNDEFINED
+	0, // 60: ' ]'
+	0, // 61: ' ^'
+	0, // 62: UNDEFINED
+	0, // 63: UNDEFINED
+	0, // 64: UNDEFINED
+	0, // 65: UNDEFINED
+	0, // 66: '-='
+	0, // 67: UNDEFINED
+	0, // 68: UNDEFINED
+	0, // 69: UNDEFINED
+	0, // 70: UNDEFINED
+	0, // 71: UNDEFINED
+	0, // 72: '..'
+	0, // 73: UNDEFINED
+	0, // 74: UNDEFINED
+	0, // 75: UNDEFINED
+	0, // 76: UNDEFINED
+	0, // 77: UNDEFINED
+	0, // 78: UNDEFINED
+	0, // 79: UNDEFINED
+	0, // 80: '|='
+	0, // 81: UNDEFINED
+	0, // 82: UNDEFINED
+	0, // 83: UNDEFINED
+	0, // 84: UNDEFINED
+	0, // 85: UNDEFINED
+	0, // 86: UNDEFINED
+	0, // 87: UNDEFINED
+	0, // 88: UNDEFINED
+	0, // 89: UNDEFINED
+	0, // 90: ' {'
+	0, // 91: ' |'
+	0, // 92: ' }'
+	0, // 93: ' ~'
+	0, // 94: UNDEFINED
+	0, // 95: UNDEFINED
+	0, // 96: UNDEFINED
+	0, // 97: UNDEFINED
+	0, // 98: UNDEFINED
+	0, // 99: UNDEFINED
+	0, // 100: UNDEFINED
+	0, // 101: UNDEFINED
+	0, // 102: UNDEFINED
+	0, // 103: UNDEFINED
+	0, // 104: UNDEFINED
+	0, // 105: UNDEFINED
+	0, // 106: UNDEFINED
+	0, // 107: UNDEFINED
+	0, // 108: '/='
+	0, // 109: UNDEFINED
+	0, // 110: UNDEFINED
+	0, // 111: UNDEFINED
+	0, // 112: UNDEFINED
+	0, // 113: UNDEFINED
+	0, // 114: UNDEFINED
+	0, // 115: UNDEFINED
+	0, // 116: UNDEFINED
+	0, // 117: UNDEFINED
+	0, // 118: UNDEFINED
+	0, // 119: UNDEFINED
+	0, // 120: UNDEFINED
+	0, // 121: UNDEFINED
+	0, // 122: UNDEFINED
+	0, // 123: UNDEFINED
+	0, // 124: UNDEFINED
+	0, // 125: UNDEFINED
+	0, // 126: UNDEFINED
+	0, // 127: UNDEFINED
+	0, // 128: UNDEFINED
+	0, // 129: UNDEFINED
+	0, // 130: UNDEFINED
+	0, // 131: '&&'
+	0, // 132: UNDEFINED
+	0, // 133: '%='
+	0, // 134: UNDEFINED
+	0, // 135: UNDEFINED
+	0, // 136: UNDEFINED
+	0, // 137: UNDEFINED
+	0, // 138: UNDEFINED
+	0, // 139: UNDEFINED
+	0, // 140: UNDEFINED
+	0, // 141: UNDEFINED
+	0, // 142: UNDEFINED
+	0, // 143: '||'
+	0, // 144: UNDEFINED
+	0, // 145: '<<'
+	0, // 146: '<='
+	0, // 147: UNDEFINED
+	0, // 148: UNDEFINED
+	0, // 149: UNDEFINED
+	0, // 150: UNDEFINED
+	0, // 151: UNDEFINED
+	0, // 152: UNDEFINED
+	0, // 153: UNDEFINED
+	0, // 154: '&='
+	0, // 155: '^='
+	0, // 156: UNDEFINED
+	0, // 157: UNDEFINED
+	0, // 158: UNDEFINED
+	0, // 159: UNDEFINED
+	0, // 160: UNDEFINED
+	0, // 161: UNDEFINED
+	0, // 162: UNDEFINED
+	0, // 163: UNDEFINED
+	0, // 164: UNDEFINED
+	0, // 165: UNDEFINED
+	0, // 166: UNDEFINED
+	0, // 167: '=='
+	0, // 168: UNDEFINED
+	0, // 169: UNDEFINED
+	0, // 170: UNDEFINED
+	0, // 171: UNDEFINED
+	0, // 172: UNDEFINED
+	0, // 173: UNDEFINED
+	0, // 174: UNDEFINED
+	0, // 175: UNDEFINED
+	0, // 176: UNDEFINED
+	0, // 177: UNDEFINED
+	0, // 178: UNDEFINED
+	0, // 179: UNDEFINED
+	0, // 180: UNDEFINED
+	0, // 181: UNDEFINED
+	0, // 182: UNDEFINED
+	0, // 183: UNDEFINED
+	0, // 184: UNDEFINED
+	0, // 185: UNDEFINED
+	0, // 186: UNDEFINED
+	0, // 187: UNDEFINED
+	0, // 188: '>='
+	0, // 189: '>>'
+	0, // 190: UNDEFINED
+	0, // 191: UNDEFINED
+	0, // 192: UNDEFINED
+	0, // 193: UNDEFINED
+	0, // 194: UNDEFINED
+	0, // 195: UNDEFINED
+	0, // 196: UNDEFINED
+	0, // 197: UNDEFINED
+	0, // 198: UNDEFINED
+	0, // 199: UNDEFINED
+	0, // 200: UNDEFINED
+	0, // 201: UNDEFINED
+	0, // 202: UNDEFINED
+	0, // 203: UNDEFINED
+	0, // 204: UNDEFINED
+	0, // 205: UNDEFINED
+	0, // 206: UNDEFINED
+	0, // 207: UNDEFINED
+	0, // 208: UNDEFINED
+	0, // 209: UNDEFINED
+	0, // 210: UNDEFINED
+	0, // 211: UNDEFINED
+	0, // 212: ' \n'
+	0, // 213: UNDEFINED
+	0, // 214: UNDEFINED
+	0, // 215: UNDEFINED
+	0, // 216: UNDEFINED
+	0, // 217: UNDEFINED
+	0, // 218: UNDEFINED
+	0, // 219: UNDEFINED
+	0, // 220: UNDEFINED
+	0, // 221: UNDEFINED
+	0, // 222: UNDEFINED
+	0, // 223: UNDEFINED
+	0, // 224: UNDEFINED
+	0, // 225: UNDEFINED
+	0, // 226: UNDEFINED
+	0, // 227: UNDEFINED
+	0, // 228: UNDEFINED
+	0, // 229: UNDEFINED
+	0, // 230: UNDEFINED
+	0, // 231: UNDEFINED
+	0, // 232: UNDEFINED
+	0, // 233: UNDEFINED
+	0, // 234: UNDEFINED
+}
+
+static const uint8_t postfixBindingPower[235] {
+        0, // 0: ' !'
+	0, // 1: UNDEFINED
+	0, // 2: UNDEFINED
+	0, // 3: '*='
+	0, // 4: ' %'
+	0, // 5: ' &'
+	0, // 6: '++'
+	0, // 7: ' ('
+	0, // 8: ' )'
+	0, // 9: ' *'
+	0, // 10: ' +'
+	0, // 11: UNDEFINED
+	0, // 12: ' -'
+	0, // 13: ' .'
+	0, // 14: ' /'
+	0, // 15: UNDEFINED
+	0, // 16: UNDEFINED
+	0, // 17: UNDEFINED
+	0, // 18: UNDEFINED
+	0, // 19: UNDEFINED
+	0, // 20: UNDEFINED
+	0, // 21: UNDEFINED
+	0, // 22: UNDEFINED
+	0, // 23: UNDEFINED
+	0, // 24: '+='
+	0, // 25: UNDEFINED
+	0, // 26: ' ;'
+	0, // 27: ' <'
+	0, // 28: ' ='
+	0, // 29: ' >'
+	0, // 30: UNDEFINED
+	0, // 31: UNDEFINED
+	0, // 32: UNDEFINED
+	0, // 33: UNDEFINED
+	0, // 34: UNDEFINED
+	0, // 35: UNDEFINED
+	0, // 36: UNDEFINED
+	0, // 37: UNDEFINED
+	0, // 38: UNDEFINED
+	0, // 39: UNDEFINED
+	0, // 40: UNDEFINED
+	0, // 41: UNDEFINED
+	0, // 42: UNDEFINED
+	0, // 43: UNDEFINED
+	0, // 44: UNDEFINED
+	0, // 45: UNDEFINED
+	0, // 46: UNDEFINED
+	0, // 47: UNDEFINED
+	0, // 48: UNDEFINED
+	0, // 49: '!='
+	0, // 50: '--'
+	0, // 51: UNDEFINED
+	0, // 52: UNDEFINED
+	0, // 53: UNDEFINED
+	0, // 54: UNDEFINED
+	0, // 55: UNDEFINED
+	0, // 56: UNDEFINED
+	0, // 57: UNDEFINED
+	0, // 58: ' ['
+	0, // 59: UNDEFINED
+	0, // 60: ' ]'
+	0, // 61: ' ^'
+	0, // 62: UNDEFINED
+	0, // 63: UNDEFINED
+	0, // 64: UNDEFINED
+	0, // 65: UNDEFINED
+	0, // 66: '-='
+	0, // 67: UNDEFINED
+	0, // 68: UNDEFINED
+	0, // 69: UNDEFINED
+	0, // 70: UNDEFINED
+	0, // 71: UNDEFINED
+	0, // 72: '..'
+	0, // 73: UNDEFINED
+	0, // 74: UNDEFINED
+	0, // 75: UNDEFINED
+	0, // 76: UNDEFINED
+	0, // 77: UNDEFINED
+	0, // 78: UNDEFINED
+	0, // 79: UNDEFINED
+	0, // 80: '|='
+	0, // 81: UNDEFINED
+	0, // 82: UNDEFINED
+	0, // 83: UNDEFINED
+	0, // 84: UNDEFINED
+	0, // 85: UNDEFINED
+	0, // 86: UNDEFINED
+	0, // 87: UNDEFINED
+	0, // 88: UNDEFINED
+	0, // 89: UNDEFINED
+	0, // 90: ' {'
+	0, // 91: ' |'
+	0, // 92: ' }'
+	0, // 93: ' ~'
+	0, // 94: UNDEFINED
+	0, // 95: UNDEFINED
+	0, // 96: UNDEFINED
+	0, // 97: UNDEFINED
+	0, // 98: UNDEFINED
+	0, // 99: UNDEFINED
+	0, // 100: UNDEFINED
+	0, // 101: UNDEFINED
+	0, // 102: UNDEFINED
+	0, // 103: UNDEFINED
+	0, // 104: UNDEFINED
+	0, // 105: UNDEFINED
+	0, // 106: UNDEFINED
+	0, // 107: UNDEFINED
+	0, // 108: '/='
+	0, // 109: UNDEFINED
+	0, // 110: UNDEFINED
+	0, // 111: UNDEFINED
+	0, // 112: UNDEFINED
+	0, // 113: UNDEFINED
+	0, // 114: UNDEFINED
+	0, // 115: UNDEFINED
+	0, // 116: UNDEFINED
+	0, // 117: UNDEFINED
+	0, // 118: UNDEFINED
+	0, // 119: UNDEFINED
+	0, // 120: UNDEFINED
+	0, // 121: UNDEFINED
+	0, // 122: UNDEFINED
+	0, // 123: UNDEFINED
+	0, // 124: UNDEFINED
+	0, // 125: UNDEFINED
+	0, // 126: UNDEFINED
+	0, // 127: UNDEFINED
+	0, // 128: UNDEFINED
+	0, // 129: UNDEFINED
+	0, // 130: UNDEFINED
+	0, // 131: '&&'
+	0, // 132: UNDEFINED
+	0, // 133: '%='
+	0, // 134: UNDEFINED
+	0, // 135: UNDEFINED
+	0, // 136: UNDEFINED
+	0, // 137: UNDEFINED
+	0, // 138: UNDEFINED
+	0, // 139: UNDEFINED
+	0, // 140: UNDEFINED
+	0, // 141: UNDEFINED
+	0, // 142: UNDEFINED
+	0, // 143: '||'
+	0, // 144: UNDEFINED
+	0, // 145: '<<'
+	0, // 146: '<='
+	0, // 147: UNDEFINED
+	0, // 148: UNDEFINED
+	0, // 149: UNDEFINED
+	0, // 150: UNDEFINED
+	0, // 151: UNDEFINED
+	0, // 152: UNDEFINED
+	0, // 153: UNDEFINED
+	0, // 154: '&='
+	0, // 155: '^='
+	0, // 156: UNDEFINED
+	0, // 157: UNDEFINED
+	0, // 158: UNDEFINED
+	0, // 159: UNDEFINED
+	0, // 160: UNDEFINED
+	0, // 161: UNDEFINED
+	0, // 162: UNDEFINED
+	0, // 163: UNDEFINED
+	0, // 164: UNDEFINED
+	0, // 165: UNDEFINED
+	0, // 166: UNDEFINED
+	0, // 167: '=='
+	0, // 168: UNDEFINED
+	0, // 169: UNDEFINED
+	0, // 170: UNDEFINED
+	0, // 171: UNDEFINED
+	0, // 172: UNDEFINED
+	0, // 173: UNDEFINED
+	0, // 174: UNDEFINED
+	0, // 175: UNDEFINED
+	0, // 176: UNDEFINED
+	0, // 177: UNDEFINED
+	0, // 178: UNDEFINED
+	0, // 179: UNDEFINED
+	0, // 180: UNDEFINED
+	0, // 181: UNDEFINED
+	0, // 182: UNDEFINED
+	0, // 183: UNDEFINED
+	0, // 184: UNDEFINED
+	0, // 185: UNDEFINED
+	0, // 186: UNDEFINED
+	0, // 187: UNDEFINED
+	0, // 188: '>='
+	0, // 189: '>>'
+	0, // 190: UNDEFINED
+	0, // 191: UNDEFINED
+	0, // 192: UNDEFINED
+	0, // 193: UNDEFINED
+	0, // 194: UNDEFINED
+	0, // 195: UNDEFINED
+	0, // 196: UNDEFINED
+	0, // 197: UNDEFINED
+	0, // 198: UNDEFINED
+	0, // 199: UNDEFINED
+	0, // 200: UNDEFINED
+	0, // 201: UNDEFINED
+	0, // 202: UNDEFINED
+	0, // 203: UNDEFINED
+	0, // 204: UNDEFINED
+	0, // 205: UNDEFINED
+	0, // 206: UNDEFINED
+	0, // 207: UNDEFINED
+	0, // 208: UNDEFINED
+	0, // 209: UNDEFINED
+	0, // 210: UNDEFINED
+	0, // 211: UNDEFINED
+	0, // 212: ' \n'
+	0, // 213: UNDEFINED
+	0, // 214: UNDEFINED
+	0, // 215: UNDEFINED
+	0, // 216: UNDEFINED
+	0, // 217: UNDEFINED
+	0, // 218: UNDEFINED
+	0, // 219: UNDEFINED
+	0, // 220: UNDEFINED
+	0, // 221: UNDEFINED
+	0, // 222: UNDEFINED
+	0, // 223: UNDEFINED
+	0, // 224: UNDEFINED
+	0, // 225: UNDEFINED
+	0, // 226: UNDEFINED
+	0, // 227: UNDEFINED
+	0, // 228: UNDEFINED
+	0, // 229: UNDEFINED
+	0, // 230: UNDEFINED
+	0, // 231: UNDEFINED
+	0, // 232: UNDEFINED
+	0, // 233: UNDEFINED
+	0, // 234: UNDEFINED
+}
+
+static const uint8_t leftInfixBindingPower[235] {
+	0, // 0: ' !'
+	0, // 1: UNDEFINED
+	0, // 2: UNDEFINED
+	0, // 3: '*='
+	0, // 4: ' %'
+	0, // 5: ' &'
+	0, // 6: '++'
+	0, // 7: ' ('
+	0, // 8: ' )'
+	0, // 9: ' *'
+	0, // 10: ' +'
+	0, // 11: UNDEFINED
+	0, // 12: ' -'
+	0, // 13: ' .'
+	0, // 14: ' /'
+	0, // 15: UNDEFINED
+	0, // 16: UNDEFINED
+	0, // 17: UNDEFINED
+	0, // 18: UNDEFINED
+	0, // 19: UNDEFINED
+	0, // 20: UNDEFINED
+	0, // 21: UNDEFINED
+	0, // 22: UNDEFINED
+	0, // 23: UNDEFINED
+	0, // 24: '+='
+	0, // 25: UNDEFINED
+	0, // 26: ' ;'
+	0, // 27: ' <'
+	0, // 28: ' ='
+	0, // 29: ' >'
+	0, // 30: UNDEFINED
+	0, // 31: UNDEFINED
+	0, // 32: UNDEFINED
+	0, // 33: UNDEFINED
+	0, // 34: UNDEFINED
+	0, // 35: UNDEFINED
+	0, // 36: UNDEFINED
+	0, // 37: UNDEFINED
+	0, // 38: UNDEFINED
+	0, // 39: UNDEFINED
+	0, // 40: UNDEFINED
+	0, // 41: UNDEFINED
+	0, // 42: UNDEFINED
+	0, // 43: UNDEFINED
+	0, // 44: UNDEFINED
+	0, // 45: UNDEFINED
+	0, // 46: UNDEFINED
+	0, // 47: UNDEFINED
+	0, // 48: UNDEFINED
+	0, // 49: '!='
+	0, // 50: '--'
+	0, // 51: UNDEFINED
+	0, // 52: UNDEFINED
+	0, // 53: UNDEFINED
+	0, // 54: UNDEFINED
+	0, // 55: UNDEFINED
+	0, // 56: UNDEFINED
+	0, // 57: UNDEFINED
+	0, // 58: ' ['
+	0, // 59: UNDEFINED
+	0, // 60: ' ]'
+	0, // 61: ' ^'
+	0, // 62: UNDEFINED
+	0, // 63: UNDEFINED
+	0, // 64: UNDEFINED
+	0, // 65: UNDEFINED
+	0, // 66: '-='
+	0, // 67: UNDEFINED
+	0, // 68: UNDEFINED
+	0, // 69: UNDEFINED
+	0, // 70: UNDEFINED
+	0, // 71: UNDEFINED
+	0, // 72: '..'
+	0, // 73: UNDEFINED
+	0, // 74: UNDEFINED
+	0, // 75: UNDEFINED
+	0, // 76: UNDEFINED
+	0, // 77: UNDEFINED
+	0, // 78: UNDEFINED
+	0, // 79: UNDEFINED
+	0, // 80: '|='
+	0, // 81: UNDEFINED
+	0, // 82: UNDEFINED
+	0, // 83: UNDEFINED
+	0, // 84: UNDEFINED
+	0, // 85: UNDEFINED
+	0, // 86: UNDEFINED
+	0, // 87: UNDEFINED
+	0, // 88: UNDEFINED
+	0, // 89: UNDEFINED
+	0, // 90: ' {'
+	0, // 91: ' |'
+	0, // 92: ' }'
+	0, // 93: ' ~'
+	0, // 94: UNDEFINED
+	0, // 95: UNDEFINED
+	0, // 96: UNDEFINED
+	0, // 97: UNDEFINED
+	0, // 98: UNDEFINED
+	0, // 99: UNDEFINED
+	0, // 100: UNDEFINED
+	0, // 101: UNDEFINED
+	0, // 102: UNDEFINED
+	0, // 103: UNDEFINED
+	0, // 104: UNDEFINED
+	0, // 105: UNDEFINED
+	0, // 106: UNDEFINED
+	0, // 107: UNDEFINED
+	0, // 108: '/='
+	0, // 109: UNDEFINED
+	0, // 110: UNDEFINED
+	0, // 111: UNDEFINED
+	0, // 112: UNDEFINED
+	0, // 113: UNDEFINED
+	0, // 114: UNDEFINED
+	0, // 115: UNDEFINED
+	0, // 116: UNDEFINED
+	0, // 117: UNDEFINED
+	0, // 118: UNDEFINED
+	0, // 119: UNDEFINED
+	0, // 120: UNDEFINED
+	0, // 121: UNDEFINED
+	0, // 122: UNDEFINED
+	0, // 123: UNDEFINED
+	0, // 124: UNDEFINED
+	0, // 125: UNDEFINED
+	0, // 126: UNDEFINED
+	0, // 127: UNDEFINED
+	0, // 128: UNDEFINED
+	0, // 129: UNDEFINED
+	0, // 130: UNDEFINED
+	0, // 131: '&&'
+	0, // 132: UNDEFINED
+	0, // 133: '%='
+	0, // 134: UNDEFINED
+	0, // 135: UNDEFINED
+	0, // 136: UNDEFINED
+	0, // 137: UNDEFINED
+	0, // 138: UNDEFINED
+	0, // 139: UNDEFINED
+	0, // 140: UNDEFINED
+	0, // 141: UNDEFINED
+	0, // 142: UNDEFINED
+	0, // 143: '||'
+	0, // 144: UNDEFINED
+	0, // 145: '<<'
+	0, // 146: '<='
+	0, // 147: UNDEFINED
+	0, // 148: UNDEFINED
+	0, // 149: UNDEFINED
+	0, // 150: UNDEFINED
+	0, // 151: UNDEFINED
+	0, // 152: UNDEFINED
+	0, // 153: UNDEFINED
+	0, // 154: '&='
+	0, // 155: '^='
+	0, // 156: UNDEFINED
+	0, // 157: UNDEFINED
+	0, // 158: UNDEFINED
+	0, // 159: UNDEFINED
+	0, // 160: UNDEFINED
+	0, // 161: UNDEFINED
+	0, // 162: UNDEFINED
+	0, // 163: UNDEFINED
+	0, // 164: UNDEFINED
+	0, // 165: UNDEFINED
+	0, // 166: UNDEFINED
+	0, // 167: '=='
+	0, // 168: UNDEFINED
+	0, // 169: UNDEFINED
+	0, // 170: UNDEFINED
+	0, // 171: UNDEFINED
+	0, // 172: UNDEFINED
+	0, // 173: UNDEFINED
+	0, // 174: UNDEFINED
+	0, // 175: UNDEFINED
+	0, // 176: UNDEFINED
+	0, // 177: UNDEFINED
+	0, // 178: UNDEFINED
+	0, // 179: UNDEFINED
+	0, // 180: UNDEFINED
+	0, // 181: UNDEFINED
+	0, // 182: UNDEFINED
+	0, // 183: UNDEFINED
+	0, // 184: UNDEFINED
+	0, // 185: UNDEFINED
+	0, // 186: UNDEFINED
+	0, // 187: UNDEFINED
+	0, // 188: '>='
+	0, // 189: '>>'
+	0, // 190: UNDEFINED
+	0, // 191: UNDEFINED
+	0, // 192: UNDEFINED
+	0, // 193: UNDEFINED
+	0, // 194: UNDEFINED
+	0, // 195: UNDEFINED
+	0, // 196: UNDEFINED
+	0, // 197: UNDEFINED
+	0, // 198: UNDEFINED
+	0, // 199: UNDEFINED
+	0, // 200: UNDEFINED
+	0, // 201: UNDEFINED
+	0, // 202: UNDEFINED
+	0, // 203: UNDEFINED
+	0, // 204: UNDEFINED
+	0, // 205: UNDEFINED
+	0, // 206: UNDEFINED
+	0, // 207: UNDEFINED
+	0, // 208: UNDEFINED
+	0, // 209: UNDEFINED
+	0, // 210: UNDEFINED
+	0, // 211: UNDEFINED
+	0, // 212: ' \n'
+	0, // 213: UNDEFINED
+	0, // 214: UNDEFINED
+	0, // 215: UNDEFINED
+	0, // 216: UNDEFINED
+	0, // 217: UNDEFINED
+	0, // 218: UNDEFINED
+	0, // 219: UNDEFINED
+	0, // 220: UNDEFINED
+	0, // 221: UNDEFINED
+	0, // 222: UNDEFINED
+	0, // 223: UNDEFINED
+	0, // 224: UNDEFINED
+	0, // 225: UNDEFINED
+	0, // 226: UNDEFINED
+	0, // 227: UNDEFINED
+	0, // 228: UNDEFINED
+	0, // 229: UNDEFINED
+	0, // 230: UNDEFINED
+	0, // 231: UNDEFINED
+	0, // 232: UNDEFINED
+	0, // 233: UNDEFINED
+	0, // 234: UNDEFINED
+}
+
+static const uint8_t rightInfixBindingPower[235] {
+	0, // 0: ' !'
+	0, // 1: UNDEFINED
+	0, // 2: UNDEFINED
+	0, // 3: '*='
+	0, // 4: ' %'
+	0, // 5: ' &'
+	0, // 6: '++'
+	0, // 7: ' ('
+	0, // 8: ' )'
+	0, // 9: ' *'
+	0, // 10: ' +'
+	0, // 11: UNDEFINED
+	0, // 12: ' -'
+	0, // 13: ' .'
+	0, // 14: ' /'
+	0, // 15: UNDEFINED
+	0, // 16: UNDEFINED
+	0, // 17: UNDEFINED
+	0, // 18: UNDEFINED
+	0, // 19: UNDEFINED
+	0, // 20: UNDEFINED
+	0, // 21: UNDEFINED
+	0, // 22: UNDEFINED
+	0, // 23: UNDEFINED
+	0, // 24: '+='
+	0, // 25: UNDEFINED
+	0, // 26: ' ;'
+	0, // 27: ' <'
+	0, // 28: ' ='
+	0, // 29: ' >'
+	0, // 30: UNDEFINED
+	0, // 31: UNDEFINED
+	0, // 32: UNDEFINED
+	0, // 33: UNDEFINED
+	0, // 34: UNDEFINED
+	0, // 35: UNDEFINED
+	0, // 36: UNDEFINED
+	0, // 37: UNDEFINED
+	0, // 38: UNDEFINED
+	0, // 39: UNDEFINED
+	0, // 40: UNDEFINED
+	0, // 41: UNDEFINED
+	0, // 42: UNDEFINED
+	0, // 43: UNDEFINED
+	0, // 44: UNDEFINED
+	0, // 45: UNDEFINED
+	0, // 46: UNDEFINED
+	0, // 47: UNDEFINED
+	0, // 48: UNDEFINED
+	0, // 49: '!='
+	0, // 50: '--'
+	0, // 51: UNDEFINED
+	0, // 52: UNDEFINED
+	0, // 53: UNDEFINED
+	0, // 54: UNDEFINED
+	0, // 55: UNDEFINED
+	0, // 56: UNDEFINED
+	0, // 57: UNDEFINED
+	0, // 58: ' ['
+	0, // 59: UNDEFINED
+	0, // 60: ' ]'
+	0, // 61: ' ^'
+	0, // 62: UNDEFINED
+	0, // 63: UNDEFINED
+	0, // 64: UNDEFINED
+	0, // 65: UNDEFINED
+	0, // 66: '-='
+	0, // 67: UNDEFINED
+	0, // 68: UNDEFINED
+	0, // 69: UNDEFINED
+	0, // 70: UNDEFINED
+	0, // 71: UNDEFINED
+	0, // 72: '..'
+	0, // 73: UNDEFINED
+	0, // 74: UNDEFINED
+	0, // 75: UNDEFINED
+	0, // 76: UNDEFINED
+	0, // 77: UNDEFINED
+	0, // 78: UNDEFINED
+	0, // 79: UNDEFINED
+	0, // 80: '|='
+	0, // 81: UNDEFINED
+	0, // 82: UNDEFINED
+	0, // 83: UNDEFINED
+	0, // 84: UNDEFINED
+	0, // 85: UNDEFINED
+	0, // 86: UNDEFINED
+	0, // 87: UNDEFINED
+	0, // 88: UNDEFINED
+	0, // 89: UNDEFINED
+	0, // 90: ' {'
+	0, // 91: ' |'
+	0, // 92: ' }'
+	0, // 93: ' ~'
+	0, // 94: UNDEFINED
+	0, // 95: UNDEFINED
+	0, // 96: UNDEFINED
+	0, // 97: UNDEFINED
+	0, // 98: UNDEFINED
+	0, // 99: UNDEFINED
+	0, // 100: UNDEFINED
+	0, // 101: UNDEFINED
+	0, // 102: UNDEFINED
+	0, // 103: UNDEFINED
+	0, // 104: UNDEFINED
+	0, // 105: UNDEFINED
+	0, // 106: UNDEFINED
+	0, // 107: UNDEFINED
+	0, // 108: '/='
+	0, // 109: UNDEFINED
+	0, // 110: UNDEFINED
+	0, // 111: UNDEFINED
+	0, // 112: UNDEFINED
+	0, // 113: UNDEFINED
+	0, // 114: UNDEFINED
+	0, // 115: UNDEFINED
+	0, // 116: UNDEFINED
+	0, // 117: UNDEFINED
+	0, // 118: UNDEFINED
+	0, // 119: UNDEFINED
+	0, // 120: UNDEFINED
+	0, // 121: UNDEFINED
+	0, // 122: UNDEFINED
+	0, // 123: UNDEFINED
+	0, // 124: UNDEFINED
+	0, // 125: UNDEFINED
+	0, // 126: UNDEFINED
+	0, // 127: UNDEFINED
+	0, // 128: UNDEFINED
+	0, // 129: UNDEFINED
+	0, // 130: UNDEFINED
+	0, // 131: '&&'
+	0, // 132: UNDEFINED
+	0, // 133: '%='
+	0, // 134: UNDEFINED
+	0, // 135: UNDEFINED
+	0, // 136: UNDEFINED
+	0, // 137: UNDEFINED
+	0, // 138: UNDEFINED
+	0, // 139: UNDEFINED
+	0, // 140: UNDEFINED
+	0, // 141: UNDEFINED
+	0, // 142: UNDEFINED
+	0, // 143: '||'
+	0, // 144: UNDEFINED
+	0, // 145: '<<'
+	0, // 146: '<='
+	0, // 147: UNDEFINED
+	0, // 148: UNDEFINED
+	0, // 149: UNDEFINED
+	0, // 150: UNDEFINED
+	0, // 151: UNDEFINED
+	0, // 152: UNDEFINED
+	0, // 153: UNDEFINED
+	0, // 154: '&='
+	0, // 155: '^='
+	0, // 156: UNDEFINED
+	0, // 157: UNDEFINED
+	0, // 158: UNDEFINED
+	0, // 159: UNDEFINED
+	0, // 160: UNDEFINED
+	0, // 161: UNDEFINED
+	0, // 162: UNDEFINED
+	0, // 163: UNDEFINED
+	0, // 164: UNDEFINED
+	0, // 165: UNDEFINED
+	0, // 166: UNDEFINED
+	0, // 167: '=='
+	0, // 168: UNDEFINED
+	0, // 169: UNDEFINED
+	0, // 170: UNDEFINED
+	0, // 171: UNDEFINED
+	0, // 172: UNDEFINED
+	0, // 173: UNDEFINED
+	0, // 174: UNDEFINED
+	0, // 175: UNDEFINED
+	0, // 176: UNDEFINED
+	0, // 177: UNDEFINED
+	0, // 178: UNDEFINED
+	0, // 179: UNDEFINED
+	0, // 180: UNDEFINED
+	0, // 181: UNDEFINED
+	0, // 182: UNDEFINED
+	0, // 183: UNDEFINED
+	0, // 184: UNDEFINED
+	0, // 185: UNDEFINED
+	0, // 186: UNDEFINED
+	0, // 187: UNDEFINED
+	0, // 188: '>='
+	0, // 189: '>>'
+	0, // 190: UNDEFINED
+	0, // 191: UNDEFINED
+	0, // 192: UNDEFINED
+	0, // 193: UNDEFINED
+	0, // 194: UNDEFINED
+	0, // 195: UNDEFINED
+	0, // 196: UNDEFINED
+	0, // 197: UNDEFINED
+	0, // 198: UNDEFINED
+	0, // 199: UNDEFINED
+	0, // 200: UNDEFINED
+	0, // 201: UNDEFINED
+	0, // 202: UNDEFINED
+	0, // 203: UNDEFINED
+	0, // 204: UNDEFINED
+	0, // 205: UNDEFINED
+	0, // 206: UNDEFINED
+	0, // 207: UNDEFINED
+	0, // 208: UNDEFINED
+	0, // 209: UNDEFINED
+	0, // 210: UNDEFINED
+	0, // 211: UNDEFINED
+	0, // 212: ' \n'
+	0, // 213: UNDEFINED
+	0, // 214: UNDEFINED
+	0, // 215: UNDEFINED
+	0, // 216: UNDEFINED
+	0, // 217: UNDEFINED
+	0, // 218: UNDEFINED
+	0, // 219: UNDEFINED
+	0, // 220: UNDEFINED
+	0, // 221: UNDEFINED
+	0, // 222: UNDEFINED
+	0, // 223: UNDEFINED
+	0, // 224: UNDEFINED
+	0, // 225: UNDEFINED
+	0, // 226: UNDEFINED
+	0, // 227: UNDEFINED
+	0, // 228: UNDEFINED
+	0, // 229: UNDEFINED
+	0, // 230: UNDEFINED
+	0, // 231: UNDEFINED
+	0, // 232: UNDEFINED
+	0, // 233: UNDEFINED
+	0, // 234: UNDEFINED 
+}
+
+#ifdef DEBUG
+#ifdef DEBUG
+uint64_t debug_parseLogicalOr(Lexer* lexer, AST *ast, bool *parseError);
+uint64_t parse(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing LogicalOr...\n");
+	const uint64_t size = debug_parseLogicalOr(lexer,ast,parseError);
+	printf("Reducing LogicalOr\n");
+	return size;
+}
+uint64_t debug_parseLogicalOr(Lexer* lexer, AST *ast, bool *parseError) {
+#else
+
+uint64_t parseLogicalOr(Lexer* lexer, AST *ast, bool *parseError) {
+#endif
+	Lexer savedLexer = {0};
+	return prattParsing_parseExpression(lexer,&savedLexer,ast,parseError,0);
+}
+uint64_t prattParsing_parseExpression(Lexer* lexer, Lexer* savedLexer, AST *ast, bool* parseError, uint8_t minBindingPower) {
+	//,{}()[].;~\n\r|&+-><=*!/%^\?%`^
+	//{ and }
+	//( and )
+	//[ and ]
+	//. and .. and ; and ~ and \n and ,
+	//| and || and |=
+	//& and && and &=
+	//+ and ++ and +=
+	//- and -- and -=
+	//> and >> and >= 
+	//< and << and <= 
+	
+	//= and ==
+	//! and !=
+	//* and *=
+	//'/' and /=
+	//% and %=
+	//^ and ^=
+	uint64_t lhsIndex = ast->count - 1;
+	AstNode* lhs = AST_getNode(ast);
+	if (lexer->type == TOKENTYPE_SYM) {
+		if (lexer->size == 1 && *lexer->token == '(') {
+			AST_createTerminalNode(ast,lhs,TOKENTYPE_PAREN,lexer->token,lexer->size);
+			lhs->size += prattParsing_parseExpression(lexer,savedLexer,ast,parseError,RIBP);
+			if (*parseError) break;
+			*savedLexer = *lexer;
+			nextToken(lexer);
+			if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ')') {
+				*parseError = true;
+				return lhs->size;
+			}
+		} else {
+			uint16_t operator = 32 << 8 | *lexer->token;
+			if (lexer->size >= 2) {
+				operator = operator << 8 | *lexer->token[1];
+			}
+			operator %= 235;
+			uint8_t RPBP = prefixBindingPower[operator];
+			if (RPBP == 0) {
+				*parseError = true;
+				return lhs->size;
+			}
+			AST_createTerminalNode(ast,AST_getNode(ast),TOKENTYPE_OPERATOR,lexer->token,lexer->size); 
+
+			*savedLexer = *lexer;
+			nextToken(lexer);
+
+			lhs->size += prattParsing_parseExpression(lexer,savedLexer,ast,parseError,RIBP);
+			if (*parseError) return lhs->size;
+		}
+	} else {
+		AST_createTerminalNode(ast,AST_getNode(ast),lexer->type,lexer->token,lexer->size); 
+	}
+	*savedLexer = *lexer;
+	nextToken(lexer); // consume the literal
+	while (lexer->type == TOKENTYPE_SYM) {
+		uint16_t operator = 32 << 8 | *lexer->token;
+		if (lexer->size >= 2) {
+			operator = operator << 8 | *lexer->token[1];
+		}
+		operator %= 235;
+
+		uint8_t LPBP = postfixBindingPower[operator];
+		if (LPBP != 0) {
+			if (LPBP < minBindingPower) break;
+			AstNode node = {0};
+			node->token = lexer->token;
+			node->tokenSize = lexer->size;
+			node->size = 1 + lhs->size;
+			node->astNodeType = AST_NODE_TYPE_TERMINAL;
+			node->tokenType = TOKENTYPE_OPERATOR;
+			AST_insert(ast,node,lhsIndex);
+			*savedLexer = *lexer;
+			nextToken(lexer); // consume the operator
+
+			// 58 = '['
+			lhs->size += prattParsing_parseExpression(lexer,savedLexer,ast,parseError,RIBP);
+			if (operator == 58) {
+				*savedLexer = *lexer;
+				nextToken(lexer);
+				if (lexer->type != TOKENTYPE_SYM || lexer->size != 1 || *lexer->token == ']') {
+					*parseError = true;
+					return lhs->size;
+				}
+			}
+			if (*parseError) break;
+			continue;
+		}
+		uint8_t LIBP = leftInfixBindingPower[operator];
+		uint8_t RIBP = rightInfixBindingPower[operator];
+		if (LIBP != 0 && RIBP != 0) {
+			if (LIBP < minBindingPower) break;
+			
+			AstNode node = {0};
+			node->token = lexer->token;
+			node->tokenSize = lexer->size;
+			node->size = 1 + lhs->size;
+			node->astNodeType = AST_NODE_TYPE_TERMINAL;
+			node->tokenType = TOKENTYPE_OPERATOR;
+			AST_insert(ast,node,lhsIndex);
+			*savedLexer = *lexer;
+			nextToken(lexer); // consume the operator
+			lhs->size += prattParsing_parseExpression(lexer,savedLexer,ast,parseError,RIBP);
+			if (*parseError) break;
+		}
+	} 
+	*lexer = *savedLexer;
+	return lhs->size;
+}
+
+
+
+
+
+
+
+#ifdef DEBUG
+uint64_t debug_parseEvaluableExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag);
+uint64_t parseEvaluableExpression(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing EvaluableExpression...\n");
+	const uint64_t size = debug_parseEvaluableExpression(lexer,ast,parseError, flag);
+	printf("Reducing EvaluableExpression\n");
+	return size;
+}
+uint64_t debug_parseEvaluableExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#else
+
+uint64_t parseEvaluableExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#endif
+	AstNode* current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_EVALUBALE_EXPRESSION);
+	switch (flag) {
+		case PARSE_EXPRESSION_DEFAULT:
+		case PARSE_EXPRESSION_ID:
+			current->size += parseLogicalOr(lexer,ast,parseError);
+			break;
+		case PARSE_EXPRESSION_MATCH:
+			current->size += parseMatchExpression(lexer,ast,parseError);
+			break;
+		case PARSE_EXPRESSION_IF:
+			current->size += parseIfExpression(lexer,ast,parseError);
+			break;
+		default:
+			*flag = true
+			return 0;
+	}
+	return current->size;
+}
+
+#ifdef DEBUG
+uint64_t debug_parseEffectiveExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag);
+uint64_t parseEvaluableExpression(Lexer* lexer, AST *ast, bool *parseError)
+{
+	printf("Parsing EffectiveExpression...\n");
+	const uint64_t size = debug_parseEffectiveExpression(lexer,ast,parseError, flag);
+	printf("Reducing EffectiveExpression\n");
+	return size;
+}
+uint64_t debug_parseEffectiveExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#else
+
+uint64_t parseEffectiveExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
+#endif
+	AstNode* current = AST_getNode(ast);
+	AST_createNonTerminalNode(ast,current,TOKENTYPE_EFFECTIVE_EXPRESSION);
+
+	switch (flag) {
+				case PARSE_EXPRESSION_DEFAULT:
+			switch (lexer->type) {
+				case TOKENTYPE_NUM:
+				case TOKENTYPE_HEX:
+				case TOKENTYPE_BIN:
+				case TOKENTYPE_FLT:
+				case TOKENTYPE_STR:
+					// parse numeric expression or character expression
+					// TYPE.foo().bar()...
+					AST_createTerminalNode(ast,AST_getNode(ast),lexer->type,lexer->token,lexer->size); // create a numeric literal in nodes arena
+					current->size += 1;
+					nextTeken(lexer) // consume the numeric literal
+
+					if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != '.') {
+						*parseError = true;
+						return 1;
+					}
+					while (true) {
+						nextToken(lexer); // consume a '.'
+						if (lexer->type != TOKENTYPE_ID) {
+							*parseError = true;
+							return current->size;
+						}			
+						nextToken(lexer); // consume ID
+						if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != '(') {
+							*parseError = true;
+							return current->size;
+						}
+						nextToken(lexer); // consume '('
+
+						// consume arguments
+						current->size += parseArguments(lexer,ast,parseError);
+						if (*parseError) return current->size;
+
+						
+						if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ')') {
+							*parseError = true;
+							return current->size;
+						}
+						Lexer temp = *lexer;
+						nextToken(temp); // consume ')'
+						if (temp.size != 1 || temp.type != TOKENTYPE_SYM || temp.token != '.') {
+							return current->size;						
+						}
+						*lexer = temp;
+					}
+					if (current->size == 1) {
+						*parseError = true;
+						return 1;
+					}
+					return current->size;
+				case TOKENTYPE_STR:
+					AST_creatTerminalNode(ast,AST_getNode(ast),TOKENTYPE_STR,lexer->token,lexer->size); // create a numeric literal in nodes arena
+					current->size += 1;
+					nextTeken(lexer); // consume the numeric literal
+					
+					bool usedAFunctionCall = false;
+					bool usedAnArrayAccess = false;
+					while (true) {
+						if (current->size != 1 || current->type != TOKENTYPE_SYM) {
+							*parseError = true;
+							return current->size;
+						}
+						char c = *lexer->token;
+						if (c == '.') {
+							usedAFunctionCall = true;
+							nextToken(lexer); // consume a '.'
+							if (lexer->type != TOKENTYPE_ID) {
+								*parseError = true;
+								return current->size;
+							}			
+							nextToken(lexer); // consume ID
+							if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != '(') {
+								*parseError = true;
+								return current->size;
+							}
+							nextToken(lexer); // consume '('
+
+							// consume arguments
+							current->size += parseArguments(lexer,ast,parseError);
+							if (*parseError) return current->size;
+
+							
+							if (lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ')') {
+								*parseError = true;
+								return current->size;
+							}
+							Lexer temp = *lexer;
+							nextToken(temp); // consume ')'
+							if (temp.size != 1 || temp.type != TOKENTYPE_SYM || temp.token != '.') {
+								return current->size;						
+							}
+							*lexer = temp;
+						} else if (c == '[') {
+							nextToken(lexer);
+							if (usedAFunctionCall || usedAnArrayAccess) {
+								*parseError = true;
+								return current->size;
+							}
+							current->size += parseLogicalOr(lexer,ast,parseError);
+							if (*parseError) return current->size;
+							if (lexer->size == 2 && lexer->type == TOKENTYPE_SYM && memcmp(lexer->token,2,"..") == 0) {
+								nextToken(lexer);
+								current->size += parseLogicalOr(lexer,ast,parseError);
+								if (*parseError) return current->size;
+							} else {
+								usedAnArrayAccess = true;
+							}
+							nextToken(lexer);
+							*parseError = lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ']';
+							return current->size;
+						} else {
+							break;
+						}
+					}
+					*parseError = current->size == 1;
+					return current->size;
+				default: 
+					*parseError-true;
+					return current->size;
+
+			}
+		case PARSE_EXPRESSION_ID:
+			AST_createTerminalNode(ast,AST_getNode(ast),TOKENTYPE_ID,lexer->token,lexer->size);
+			current-> size += 1;
+			Lexer temp = *lexer;
+			nextToken(lexer);
+
+			bool expressionOpt = false;
+			while(true) {
+				if (lexer->type != TOKENTYPE_SYM || lexer->size > 2) {
+					*parseError = true;
+					*lexer = temp;
+					return current->size;
+				}
+				if (lexer->size == 2) {
+					if (expressionOpt) {
+						*parseError = true;
+						*lexer = temp;
+						return current->size;
+					} else if (*lexer->token == '+' && lexer->token[1] == '+') {
+						AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_INCREMENT);
+						current->size += 1;
+						return current->size;
+					} else if (*lexer->token == '-' && lexer->token[1] == '-') {
+						AST_createNonTerminalNode(ast,AST_getNode(ast),TOKENTYPE_DECREMENT);
+						current->size += 1;
+						return current->size;
+					} else {
+						*parseError = true;
+						*lexer = temp;
+						return current->size;
+					}
+				}
+				char c = *lexer->token;
+				temp = *lexer;
+				nextToken(lexer);
+				switch (c) {
+					case '.':
+						if (lexer->type != TOKENTYPE_ID) {
+							*parseError = true;
+							return current->size;
+						}
+						AST_createTerminalNode(ast,AST_getNode(ast),TOKENTYPE_ID,lexer->token,lexer->size);
+						temp = *lexer;
+						nextToken(lexer);
+						break;
+					case '[':
+					
+						current->size += parseLogicalOr(lexer,ast,parseError);
+						if (*parseError) return current->size;
+						if (lexer->size == 2 && lexer->type == TOKENTYPE_SYM && memcmp(lexer->token,2,"..") == 0) {
+							nextToken(lexer);
+							current->size += parseLogicalOr(lexer,ast,parseError);
+							if (*parseError) return current->size;
+						}
+						nextToken(lexer);
+						if(lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ']') {
+							*parseError = true;
+							return current->size;
+						}
+						break;
+					case '(':
+						current->size += parseArguments(lexer,ast,parseError);
+						if (*parseError) return current->size;
+						nextToken(lexer);
+						if(lexer->size != 1 || lexer->type != TOKENTYPE_SYM || *lexer->token != ')') {
+							*parseError = true;
+							return current->size;
+						}
+						expressionOpt = true;
+						break;
+					case '=':
+						if (expressionOpt) {
+							*parseError = true;
+							return current->size;
+						}
+						current->size += parseEvaluableExpression(lexer,ast,parseError,PARSE_EXPRESSION_DEFAULT);
+						return current->size;
+					default:
+						*lexer = temp;
+						return current->size;
+				}
+				temp = *lexer;
+				nextToken(lexer);
+			}
+			return current->size;
+
+
+		case PARSE_EXPRESSION_MATCH:
+			current->size += parseMatchExpression(lexer,ast,parseError);
+			break;
+		case PARSE_EXPRESSION_IF:
+			current->size += parseIfExpression(lexer,ast,parseError);
+			break;
+		default:
+			*flag = true
+			return 0;
+
+	}
+
+	return current->size;
+}
+
+
+
+
+
 #ifdef DEBUG
 uint64_t debug_parseExpression(Lexer* lexer, AST *ast, bool *parseError, uint32_t flag);
 
@@ -830,18 +2256,110 @@ uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, const uint32_
 uint64_t debug_parseExpression(Lexer* lexer, AST *ast, bool *parseError, const uint32_t flag) {
 #else
 
+
+uint32_t PARSE_EXPRESSION_EXPECTING_ANY = 0;
+uint32_t PARSE_EXPRESSION_EXPECTING_QUALIFIED_NAME = 1;
+uint32_t PARSE_EXPRESSION_EXPECTING_BOOLEAN = 2;
+uint32_t PARSE_EXPRESSION_EXPECTING_ASSIGNMENT = 3;
+
+/* uint32_t TOKENTYPE_NULL =  0;
+ * uint32_t TOKENTYPE_ID   =  1;
+ * uint32_t TOKENTYPE_NUM  =  2;
+ * uint32_t TOKENTYPE_HEX  =  3;
+ * uint32_t TOKENTYPE_BIN  =  4;
+ * uint32_t TOKENTYPE_FLT  =  5;
+ * uint32_t TOKENTYPE_SYM  =  6;
+ * uint32_t TOKENTYPE_CHR  =  7;
+ * uint32_t TOKENTYPE_STR  =  8;
+ * uint32_t TOKENTYPE_KEY  =  9;
+ * uint32_t TOKENTYPE_EOF  = 10;
+ * 
+ * assignemnt
+ * ID = logical_or
+ * ID[logical_or] = logical_or
+ * ID.x = logical_or
+ * NO: ID.foo(arguments) = logical_or
+ * NO: ID.foo(arguments)[logical_or] = logical_or
+ * 
+ * call
+ * ID.x.foo(arguments)
+ * ID.x[arguments].foo(arguments)
+ * ID.foo(arguments)
+ * ID[logical_or].foo(arguments)
+ * ID.foo(arguments)[logical_or].foo(arguments)
+ * LITERAL.foo()
+ * NO: NUMERIC.x
+ * NO: NUMERIC[arguments]
+ * NO: ALPHABETIC.x
+ * ALPHABETIC[logical_or].foo(arguments)
+ *
+ * can only assign to an ID if no function invocation was used in the left hand side of the assignement
+ * can always call a function on a left hand side
+ * 
+ * SET A =  {no function call rules} IF A USES A FUNCTION CALL UPGRADE TO B
+ * SET B = {function call rules} NEVER DOWN GRADE TO B
+ *
+ * SET A CAN BE TERMINATED BY A FUNCTION CALL OR AN ASSIGNMENT
+ * SET B CAN BE TERMINATED BY A FUNCTION CALL
+ * id.foo()
+ *
+ * EPSILON > ;
+ * statements > statement ';' statemetns | EPSILON;
+ * statement > effetive_expression;
+ * if_expression > "if" evaluable_expression '{' statements '}'
+ * match_expression > "match" evaluable_expression '{' statements '}'
+ * logical_or > ... '*' deref_expression | excetera;
+ * evaluable_expression > if_expression | match_expression | ID id_expression_b | logical_or;
+ * effective_expression > if_expression | match_expression | numeric_literal numberic_expression | alphabetic_literal alphabetic_expression_a; | ID id_expression_a | '*' deref_expression id_expression_a;
+ * 	deref_expression > '*' deref_expression | '(' deref_expression ')' | ID id_expression_c;
+ * 	id_expression_a > '.' ID id_expression_a | '[' logical_or ']' id_expression_a | '(' arguments ')' id_expression_b_opt | "++" | "--" | '=' evaluable_expression;
+ * 	id_expression_b > '.' ID id_expression_b | '[' logical_or ']' id_expression_b | '(' arguments ')' id_expression_b_opt;
+ * 	id_expression_c > '.' ID id_expression_c | '[' logical_or ']' id_expression_c | "++" | "--" | EPSILON;
+ * 	id_expression_d > '.' ID id_expression_d | '[' logical_or ']' id_expression_d | '(' arguments ')' id_expression_d | EPSILON;
+ * 	id_expression_b_opt > id_expression_b | EPSILON;
+ * 	numeric_literal > NUM | HEX | BIN | FLT;
+ * 	numeric_expression > '.' ID '(' arguments ')' numberic_expression | EPSILON;
+ * 	aplhabetic_literal > STR | CHR;
+ * 	alhpabetic_expression_a > '[' logical_or ']' alphabetic_expression_a | '.' ID '(' arguments ')' alhpabetic_expression_b | EPSILON;
+ *	alhpabetic_expression_b > '.' ID '(' arguments ')' aplhabetic_expression | EPSILON;
+ *
+ * 
+ * 
+ * ID = logical_or
+ * ID[logical_or]
+ * literal > NUM | HEX | BIN | FLT | CHR | STR; 
+ * logical_or > undefined;
+ * expression > ID expression_tail_end | literal expression_tail;
+ * 	ID_expreession > ID epression_tail_end;
+ *	expression_tail > '.' ID expression_tail_opt | '[' logical_or ']' expression_tail_opt 
+ *	expression_tail_opt > expression_tail_end | EPSILON();
+ *	eppression_tail_end > "++" | "--" | '(' parameters ')' expression_tail_opt | expression_tail;
+ *
+ *
+ * 
+ *
+ * 
+ * expression > assignment
+ * 	      | if_experssion
+ * 	      | match_expression
+ * 	      | logical_or
+ * */
+
 uint64_t parseExpression(Lexer *lexer, AST *ast, bool *parseError, const uint32_t flag) {
 #endif
 	AstNode* current = AST_getNode(ast);
 	AST_createNonTerminalNode(ast,current,TOKENTYPE_EXPRESSION);
 	switch (flag) {
-		case 0:
+		case PARSE_EXPRESSION_MATCH:
 			current->size += parseMatchExpression(lexer,ast,parseError);
 			break;
-		case 1:
+		case PARSE_EXPRESSION_IF:
 			current->size += parseIfExpression(lexer,ast,parseError);
-		case 2:
-			current->size += parseExpression(lexer,ast,parseError,0);
+			break;
+		case PARSE_EXPRESSION_ID:
+			break;
+		case PARSE_EXPRESSION_DEFAULT:
+			break;
 		default:
 			*parseError = true;
 			return 0;
@@ -1216,7 +2734,7 @@ uint64_t parseStatement(Lexer* lexer, AST *ast, bool *parseError) {
 		switch(lexer->size) {
 			case 2:
 				if (token[0] == 'i' && token[1] == 'f') {
-					current->size += parseExpression(lexer,ast,parseError,1);
+					current->size += parseExpression(lexer,ast,parseError,PARSE_EXPRESSION_IF);
 				}
 				break;
 			case 3:
@@ -1239,7 +2757,7 @@ uint64_t parseStatement(Lexer* lexer, AST *ast, bool *parseError) {
 				if (memcmp(token,"break",5) == 0 || memcmp(token,"yield",5) == 0) {
 					current->size += parseJumpStatement(lexer,ast,parseError);
 				} else if (memcmp(token,"match",5) == 0) {
-					current->size += parseExpression(lexer,ast,parseError,2);
+					current->size += parseExpression(lexer,ast,parseError,PARSE_EXPRESSION_MATCH);
 				}
 				break;
 			case 6:
@@ -1261,11 +2779,11 @@ uint64_t parseStatement(Lexer* lexer, AST *ast, bool *parseError) {
 					current->size += parseJumpStatement(lexer,ast,parseError);
 				}
 			default:
-				current->size += parseExpression(lexer,ast,parseError,0);
+				current->size += parseExpression(lexer,ast,parseError,PARSE_EXPRESION_ID);
 				break;
 		}
 	} else {
-		current->size += parseExpression(lexer,ast,parseError,3);
+		current->size += parseExpression(lexer,ast,parseError,PARSE_EXPRESSION_DEFAULT);
 	}
 	return current->size;
 
