@@ -1,8 +1,11 @@
+//TODO: FINISH REFACTORING. REPLACE lexer.pos += 1 with lexer.consume();
+
 const std = @import("std");
 const builtin = @import("builtin");
 
 pub const LexerError = error{
     UnexpectedCharachter,
+    InvalidCharachter,
     UnexpectedEndOfFile,
     InvalidToken,
 };
@@ -17,17 +20,41 @@ pub const Lexer = struct {
             .pos = 0,
             .token = &[_]u8{},
         };
-        lexer.skipWhiteSpace();
+        lexer.skipIgnoredCharachters();
         return lexer;
     }
 
-    pub fn nextToken(self: *Lexer, recognizer: anytype) !void {
-        try recognizer(self);
-        self.skipWhiteSpace(self);
+    pub fn nextToken(self: *const Lexer, recognizer: anytype) !@TypeOf(recognizer(self)) {
+        const result = try recognizer(self);
+        self.skipIgnoredCharachters();
+        return result;
     }
     pub fn currentChar(self: *const Lexer) ?u8 {
         if (self.pos >= self.source.len) return null;
         return self.source[self.pos];
+    }
+    pub fn expectChar(self: *const Lexer) !u8 {
+        if (self.pos >= self.source.len) return error.UnexpectedEndOfFile;
+        return self.source[self.pos];
+    }
+    pub fn advance(self: *const Lexer) ?u8 {
+        if (self.pos >= self.source.len) return null;
+        const c = self.source[self.pos];
+        self.pos += 1;
+        return c;
+    }
+    pub fn consume(self: *const Lexer) void {
+        self.pos += 1;
+    }
+    fn skipIgnoredCharachers(self: *Lexer) void {
+        self.skipWhiteSpace();
+        var char: u8 = undefined;
+        while (true) {
+            char = self.currentChar() orelse return;
+            if (char != '#') break;
+            recognizeBlock(self,'#');
+            self.skipWhiteSpace();
+        }
     }
     fn skipWhiteSpace(self: *Lexer) void {
         const remaining = self.source.len - self.pos;
@@ -67,6 +94,7 @@ pub const Lexer = struct {
             if (mask != 0xFFFF) {
                 // Found a non-whitespace char or a newline
                 self.pos = @intFromPtr(p) - @intFromPtr(self.source.ptr) + @ctz(~mask);
+                return;
             }
 
             p += 16;
@@ -80,6 +108,395 @@ pub const Lexer = struct {
         }
     }
 };
+pub const NumericType = enum {
+    INTEGER,
+    HEX,
+    BIN,
+    FLOAT,
+};
+fn isDigit(char: u8) bool {
+    return char >= '0' and char <= '9';
+}
+pub fn isAlpha(char: u8) bool {
+    const c = char | 0x20;
+    return c >= 'a' and c <= 'z';
+}
+fn isAlphaHex(char: u8) bool {
+    const c = char | 0x20;
+    return c >= 'a' and c <= 'f';
+}
+fn isHex(char: u8) bool {
+    return isDigit(char) or isAlphaHex(char); 
+}
+pub fn recognizeHexidecimal(lexer: *Lexer) !void {
+    const char = lexer.advance() orelse {
+        return error.InvalidCharachter;
+    };
+    if (!isHex(char)) {
+        return error.InvalidCharachter;
+    }
+    const remaining = lexer.source.len - lexer.pos;
+
+    // Fallback for the very end of the file (scalar skip)
+    if (remaining < 16) {
+        while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+            const c = lexer.source[lexer.pos];
+            if (!isHex(c)) break;
+        }
+        return;
+    }
+
+    // Branch prediction should hit this branch
+    const A_1:  @Vector(16, u8) = @splat('a' - 1);
+    const F_1:  @Vector(16, u8) = @splat('f' + 1); 
+    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
+    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
+    const OR20: @Vector(16, u8) = @splat(0x20); 
+
+    var p = lexer.source.ptr + lexer.pos;
+    // Calculate the safe limit for 16-byte loads
+    const end_ptr = lexer.source.ptr + lexer.source.len - 16;
+
+    while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
+        const v: @Vector(16, u8) = p[0..16].*;
+
+        // case fold letters
+        const lower = v | OR20;
+
+        const isCharAlpha = (lower > A_1) & (lower < F_1);
+        const isCharDigit = (v > D0_1) & (v < D9_1);
+
+        const isCharHex = isCharAlpha | isCharDigit;
+
+        // Convert the boolean vector into a 16-bit integer mask
+        const mask: u16 = @bitCast(isCharHex);
+
+        if (mask != 0xFFFF) {
+            // Found a non symbol hexidecimal
+            lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr) + @ctz(~mask);
+            return;
+        }
+
+        p += 16;
+    }
+
+    // Final tail check if SIMD finished without finding a stop character
+    lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
+    while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+        const c = lexer.source[lexer.pos];
+        if (!isHex(c)) break;
+    }
+}
+pub fn recognizeBinary(lexer: *Lexer) !void {
+    const char = lexer.advance() orelse {
+        return error.InvalidCharachter;
+    };
+    if (!isDigit(char)) {
+        return error.InvalidCharachter;
+    }
+    const remaining = lexer.source.len - lexer.pos;
+
+    // Fallback for the very end of the file (scalar skip)
+    if (remaining < 16) {
+        while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+            const c = lexer.source[lexer.pos];
+            if (c != '0' or c != '1') break;
+        }
+        return;
+    }
+
+    // Branch prediction should hit this branch
+    const D0: @Vector(16, u8) = @splat('0'); 
+    const D1: @Vector(16, u8) = @splat('1'); 
+
+    var p = lexer.source.ptr + lexer.pos;
+    // Calculate the safe limit for 16-byte loads
+    const end_ptr = lexer.source.ptr + lexer.source.len - 16;
+
+    while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
+        const v: @Vector(16, u8) = p[0..16].*;
+
+        const isCharBin = (v & D0) | (v & D1);
+
+        // Convert the boolean vector into a 16-bit integer mask
+        const mask: u16 = @bitCast(isCharBin);
+
+        if (mask != 0xFFFF) {
+            // Found a non digit charachter
+            lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr) + @ctz(~mask);
+            return;
+        }
+
+        p += 16;
+    }
+
+    // Final tail check if SIMD finished without finding a stop character
+    lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
+    while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+        const c = lexer.source[lexer.pos];
+        if (!isDigit(c)) break;
+    }
+}
+
+pub fn recognizeInteger(lexer: *Lexer) !void {
+    const char = lexer.advance() orelse {
+        return error.InvalidCharachter;
+    };
+    if (!isDigit(char)) {
+        return error.InvalidCharachter;
+    }
+    const remaining = lexer.source.len - lexer.pos;
+
+    // Fallback for the very end of the file (scalar skip)
+    if (remaining < 16) {
+        while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+            const c = lexer.source[lexer.pos];
+            if (!isDigit(c)) break;
+        }
+        return;
+    }
+
+    // Branch prediction should hit this branch
+    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
+    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
+
+    var p = lexer.source.ptr + lexer.pos;
+    // Calculate the safe limit for 16-byte loads
+    const end_ptr = lexer.source.ptr + lexer.source.len - 16;
+
+    while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
+        const v: @Vector(16, u8) = p[0..16].*;
+
+        const isCharDigit = (v > D0_1) & (v < D9_1);
+
+        // Convert the boolean vector into a 16-bit integer mask
+        const mask: u16 = @bitCast(isCharDigit);
+
+        if (mask != 0xFFFF) {
+            // Found a non digit charachter
+            lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr) + @ctz(~mask);
+            return;
+        }
+
+        p += 16;
+    }
+
+    // Final tail check if SIMD finished without finding a stop character
+    lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
+    while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+        const c = lexer.source[lexer.pos];
+        if (!isDigit(c)) break;
+    }
+}
+pub fn recognizeNumeric(lexer: *Lexer) !NumericType {
+    var char = try lexer.expectChar();
+    if (char < '0' or char > '9') return error.UnexpectedCharachter;
+    const numericTokenStart = lexer.pos;
+    lexer.consume();
+
+    char = lexer.currentChar() orelse {
+        lexer.token = lexer.source[numericTokenStart..(numericTokenStart + 1)];
+        return NumericType.INTEGER;
+    };
+
+    switch (char) {
+        'x', 'X' => {
+            lexer.consume();
+            try recognizeHexidecimal(lexer);
+            lexer.token = lexer.source[numericTokenStart..lexer.pos];
+            return NumericType.HEX;        
+        },
+        'b', 'B' => {
+            lexer.consume();
+            try recognizeBinary(lexer);
+            lexer.token = lexer.source[numericTokenStart..lexer.pos];
+            return NumericType.BIN;
+        },
+        '.' => {
+            lexer.consume();
+            try recognizeInteger(lexer);
+            lexer.token = lexer.source[numericTokenStart..lexer.pos];
+            return NumericType.FLOAT;
+        },
+        '0'...'9' => {
+            try recognizeInteger(lexer);
+            lexer.token = lexer.source[numericTokenStart..lexer.pos];
+            char == lexer.currentChar() orelse return NumericType.INTEGER;
+            if (char != '.') return NumericType.INTEGER;
+            lexer.consume();
+            try recognizeInteger(lexer);
+            lexer.token = lexer.source[numericTokenStart..lexer.pos];
+            return NumericType.FLOAT;
+
+        },
+        else => return error.UnexpectedCharachter,
+    }
+}
+const Keyword = enum {
+    IDENTIFIER,
+    IMPORT,
+    AS,
+    PUBLIC,
+    PRIVATE,
+    VAR,
+    VAL,
+    DEF,
+    SELF,
+    INTERFACE,
+    STRUCT,
+    CLASS,
+    ENUM,
+    ASSERT,
+    IF,
+    MATCH,
+    LOOP,
+    WHILE,
+    BREAK,
+    CONTINUE,
+    YIELD,
+    RETURN,
+    LABEL,
+    FLAG,
+    FLAGS,
+    COMPTIME,
+    UNDERSCORE,
+    TRUE,
+    FALSE,
+    NULL,
+};
+const KeywordMap = std.StaticStringMap(Keyword).initComptime(.{
+    .{ "import", .IMPORT },
+    .{ "as", .AS },
+    .{ "public", .PUBLIC },
+    .{ "private", .PRIVATE },
+    .{ "var", .VAR },
+    .{ "val", .VAL },
+    .{ "def", .DEF },
+    .{ "self", .SELF },
+    .{ "interface", .INTERFACE },
+    .{ "struct", .STRUCT },
+    .{ "class", .CLASS },
+    .{ "enum", .ENUM },
+    .{ "assert", .ASSERT },
+    .{ "if", .IF },
+    .{ "match", .MATCH },
+    .{ "loop", .LOOP },
+    .{ "while", .WHILE },
+    .{ "break", .BREAK },
+    .{ "continue", .CONTINUE },
+    .{ "yield", .YIELD },
+    .{ "return", .RETURN },
+    .{ "label", .LABEL },
+    .{ "flag", .FLAG },
+    .{ "flags", .FLAGS },
+    .{ "comptime", .COMPTIME },
+    .{ "_", .UNDERSCORE },
+    .{ "true", .TRUE },
+    .{ "false", .FALSE },
+    .{ "null", .NULL },
+});
+
+pub fn classifyIdentifier(lexer: *Lexer) !Keyword {
+    const identifierStartPos = lexer.pos;
+    try recognizeIdentifier(lexer);
+    lexer.token = lexer.source[identifierStartPos..lexer.pos];
+    return KeywordMap.get(lexer.token) orelse .IDENTIFIER;
+}
+pub fn recognizeIdentifier(lexer: *Lexer) !void {
+    const char = lexer.advance() orelse {
+        return error.InvalidCharachter;
+    };
+    if (char == '_') return;
+    if (!isAlhpa(char)) {
+        return error.InvalidCharachter;
+    }
+    const remaining = lexer.source.len - lexer.pos;
+
+    // Fallback for the very end of the file (scalar skip)
+    if (remaining < 16) {
+        while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+            const c = lexer.source[lexer.pos];
+            if (!isAlpha(c) or !isDigit(c)) break;
+        }
+        return;
+    }
+
+    // Branch prediction should hit this branch
+    const A_1:  @Vector(16, u8) = @splat('a' - 1);
+    const Z_1:  @Vector(16, u8) = @splat('z' + 1); 
+    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
+    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
+    const UNDR: @Vector(16, u8) = @splat('_');
+    const OR20: @Vector(16, u8) = @splat(0x20); 
+
+    var p = lexer.source.ptr + lexer.pos;
+    // Calculate the safe limit for 16-byte loads
+    const end_ptr = lexer.source.ptr + lexer.source.len - 16;
+
+    while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
+        const v: @Vector(16, u8) = p[0..16].*;
+
+        // case fold letters
+        const lower = v | OR20;
+
+        const isCharAlpha = (lower > A_1) & (lower < Z_1);
+        const isCharDigit = (v > D0_1) & (v < D9_1);
+        const isUnderScore = v & UNDR;
+
+        const isValidChar = (isCharAlpha | isCharDigit) | isUnderScore;
+
+        // Convert the boolean vector into a 16-bit integer mask
+        const mask: u16 = @bitCast(isValidChar);
+
+        if (mask != 0xFFFF) {
+            // Found a non symbol hexidecimal
+            lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr) + @ctz(~mask);
+            return;
+        }
+
+        p += 16;
+    }
+
+    // Final tail check if SIMD finished without finding a stop character
+    lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
+    while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+        const c = lexer.source[lexer.pos];
+        if (!isAlhpa(c) || !isDigit(c)) break;
+    }
+}
+
+fn recognizeBlock(lexer: *Lexer, char: u8) !void {
+    var escaped: bool = false;
+    const startOfBlock: usize = lexer.pos;
+    lexer.consume();
+
+    var c: u8 = undefined;
+    while (true) {
+        c = lexer.currentChar() orelse {
+            lexer.token = lexer.source[startOfBlock..(startOfBlock + 1)];
+            return;
+        };
+        if (c == '\\') {
+            escaped = !escaped;
+        } else {
+            escaped = false;
+        }
+        if (!(lexer.pos < lexer.source.len and (c != char or escaped))) break;
+        lexer.consume();
+    }
+    lexer.token = lexer.source[startOfBlock..(startOfBlock + 1)];
+}       
+pub fn recognizeStrLiteral(lexer: *Lexer) !void {
+    const char: u8 = lexer.currentChar() orelse return error.UnexpectedEndOfFile;
+    
+    if (char != '"' or char != '\'') return error.UnexpectedCharachter;
+    const startOfString = lexer.pos;
+    lexer.consume();
+    
+    recognizeBlock(lexer,char);
+    lexer.token = lexer.source[startOfString..lexer.pos];
+}
+
 pub const AssignmentOperator = enum {
     DEFAULT, //   =
     ADD, //  +=
@@ -101,7 +518,9 @@ pub const Operator = enum {
     LESS_THAN_OR_EQUAL_TO, // <=
     NOT, // !
     NOT_EQUALS, // !-
+    BITWISE_OR, // |
     OR, // ||
+    BITWISE_AND, // &
     AND, // &&
     XOR, // ^
     ADD, // +
@@ -111,7 +530,6 @@ pub const Operator = enum {
     MODULO, // %
     BITSHIFT_LEFT, // <<
     BITSHIFT_RIGHT, // >>
-    ADDRESS, // &
     REFERENCE, // ~
     DOT, // .
     RANGE, // ..
@@ -134,27 +552,25 @@ pub const SymbolType = union(enum) {
     }
 };
 pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
-    var char = lexer.currentChar() orelse return error.UnexpectedEndOfFile;
+    var char = try lexer.expectChar();
+    lexer.consume();
     switch (char) {
-        ',', '(', ')', '[', ']', '{', '}' => {
-            lexer.pos += 1;
+        ';', ',', '(', ')', '[', ']', '{', '}' => {
             return SymbolType{
                 .SYMBOL = char,
             };
         },
         '~' => {
-            lexer.pos += 1;
             return SymbolType{
                 .OPERATOR = Operator.REFERENCE,
             };
         },
         '=' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .ASSIGNMENT = AssignmentOperator.DEFAULT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.EQUALS,
                 };
@@ -164,12 +580,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '/' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .ASSIGNMENT = AssignmentOperator.DIVIDE,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.DIVIDE,
                 };
@@ -179,12 +594,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '%' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .ASSIGNMENT = AssignmentOperator.MODULO,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.MODULO,
                 };
@@ -194,12 +608,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '!' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.NOT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.NOT_EQUALS,
                 };
@@ -209,12 +622,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '.' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.DOT,
             };
             if (char == '.') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.RANGE,
                 };
@@ -224,18 +636,17 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '&' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.BITWISE_AND,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.AND,
                 };
             }
             if (char == '&') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.AND,
                 };
@@ -245,18 +656,17 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
             };
         },
         '|' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.BITWISE_OR,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.OR,
                 };
             }
             if (char == '|') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.OR,
                 };
@@ -268,45 +678,44 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
 
         // +; +=; +%; +|; +%=; +|=;
         '+' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.ADD,
             };
             switch (char) {
                 '=' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     return SymbolType{
                         .ASSIGNMENT = AssignmentOperator.ADD,
                     };
                 },
                 '%' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     char = lexer.currentChar() orelse return SymbolType{
                         .MOD_OPERATOR = Operator.ADD,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.consume();
                         return SymbolType{
-                            .MOD_OPERATOR = Operator.ADD,
+                            .MOD_ASSIGNMENT = AssignmentOperator.ADD,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .MOD_ASSIGNMENT = AssignmentOperator.ADD,
+                        .MOD_OPERATOR = Operator.ADD,
                     };
                 },
                 '|' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     char = lexer.currentChar() orelse return SymbolType{
                         .SAT_OPERATOR = Operator.ADD,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.consume();
                         return SymbolType{
-                            .SAT_OPERATOR = Operator.ADD,
+                            .SAT_ASSIGNMENT = AssignmentOperator.ADD,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .SAT_ASSIGNMENT = AssignmentOperator.ADD,
+                        .SAT_OPERATOR = Operator.ADD,
                     };
                 },
                 else => return SymbolType{
@@ -317,45 +726,44 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
 
         // -; -=; -%; -|; -%=; -|=;
         '-' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.SUBTRACT,
             };
             switch (char) {
                 '=' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     return SymbolType{
                         .ASSIGNMENT = AssignmentOperator.SUBTRACT,
                     };
                 },
                 '%' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     char = lexer.currentChar() orelse return SymbolType{
                         .MOD_OPERATOR = Operator.SUBTRACT,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.consume();
                         return SymbolType{
-                            .MOD_OPERATOR = Operator.SUBTRACT,
+                            .MOD_ASSIGNMENT = AssignmentOperator.SUBTRACT,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .MOD_ASSIGNMENT = AssignmentOperator.SUBTRACT,
+                        .MOD_OPERATOR = Operator.SUBTRACT,
                     };
                 },
                 '|' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     char = lexer.currentChar() orelse return SymbolType{
                         .SAT_OPERATOR = Operator.SUBTRACT,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.consume();
                         return SymbolType{
-                            .SAT_OPERATOR = Operator.SUBTRACT,
+                            .SAT_ASSIGNMENT = AssignmentOperator.SUBTRACT,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .SAT_ASSIGNMENT = AssignmentOperator.SUBTRACT,
+                        .SAT_OPERATOR = Operator.SUBTRACT,
                     };
                 },
                 else => return SymbolType{
@@ -366,30 +774,29 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
 
         // *; *=; *%; *|; *%=; *|=;
         '*' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.MULTIPLY,
             };
             switch (char) {
                 '=' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     return SymbolType{
                         .ASSIGNMENT = AssignmentOperator.MULTIPLY,
                     };
                 },
                 '%' => {
-                    lexer.pos += 1;
+                    lexer.consume();
                     char = lexer.currentChar() orelse return SymbolType{
                         .MOD_OPERATOR = Operator.MULTIPLY,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.pos += 1;
                         return SymbolType{
-                            .MOD_OPERATOR = Operator.MULTIPLY,
+                            .MOD_ASSIGNMENT = AssignmentOperator.MULTIPLY,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .MOD_ASSIGNMENT = AssignmentOperator.MULTIPLY,
+                        .MOD_OPERATOR = Operator.MULTIPLY,
                     };
                 },
                 '|' => {
@@ -397,14 +804,14 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     char = lexer.currentChar() orelse return SymbolType{
                         .SAT_OPERATOR = Operator.MULTIPLY,
                     };
-                    if (char != '=') {
+                    if (char == '=') {
+                        lexer.consume();
                         return SymbolType{
-                            .SAT_OPERATOR = Operator.MULTIPLY,
+                            .SAT_ASSIGNMENT = AssignmentOperator.MULTIPLY,
                         };
                     }
-                    lexer.pos += 1;
                     return SymbolType{
-                        .SAT_ASSIGNMENT = AssignmentOperator.MULTIPLY,
+                        .SAT_OPERATOR = Operator.MULTIPLY,
                     };
                 },
                 else => return SymbolType{
@@ -414,12 +821,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         // <; <=; <<; <<=; <<|=;
         '<' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.LESS_THAN,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.LESS_THAN_OR_EQUAL_TO,
                 };
@@ -429,12 +835,12 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     .OPERATOR = Operator.LESS_THAN,
                 };
             }
-            lexer.pos += 1;
+            lexer.consume();
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.BITSHIFT_LEFT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.BITSHIFT_LEFT,
                 };
@@ -444,12 +850,12 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     .OPERATOR = Operator.BITSHIFT_LEFT,
                 };
             }
-            lexer.pos += 1;
+            lexer.consume();
             char = lexer.currentChar() orelse return SymbolType{
                 .SAT_OPERATOR = Operator.BITSHIFT_LEFT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .SAT_ASSIGNMENT = AssignmentOperator.BITSHIFT_LEFT,
                 };
@@ -460,12 +866,11 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         // >; >=; >>=; >>|; >>|=;
         '>' => {
-            lexer.pos += 1;
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.GREATER_THAN,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .OPERATOR = Operator.GREATER_THAN_OR_EQUAL_TO,
                 };
@@ -475,12 +880,12 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     .OPERATOR = Operator.GREATER_THAN,
                 };
             }
-            lexer.pos += 1;
+            lexer.consume();
             char = lexer.currentChar() orelse return SymbolType{
                 .OPERATOR = Operator.BITSHIFT_RIGHT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,
                 };
@@ -490,12 +895,12 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     .OPERATOR = Operator.BITSHIFT_RIGHT,
                 };
             }
-            lexer.pos += 1;
+            lexer.consume();
             char = lexer.currentChar() orelse return SymbolType{
                 .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
             };
             if (char == '=') {
-                lexer.pos += 1;
+                lexer.consume();
                 return SymbolType{
                     .SAT_ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,
                 };
@@ -504,6 +909,10 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
             };
         },
-        else => return error.UnexpectedCharachter,
+        else => {
+            lexer.pos -= 1;
+            return error.UnexpectedCharachter;
+        },
     }
 }
+
