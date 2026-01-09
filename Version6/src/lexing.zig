@@ -134,7 +134,7 @@ pub const SymbolType = union(enum) {
     }
 };
 pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
-    var char = lexer.currentChar() orelse return error.UnexepectedEndOfFile;
+    var char = lexer.currentChar() orelse return error.UnexpectedEndOfFile;
     switch (char) {
         ',', '(', ')', '[', ']', '{', '}' => {
             lexer.pos += 1;
