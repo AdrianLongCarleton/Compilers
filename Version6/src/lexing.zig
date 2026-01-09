@@ -18,41 +18,40 @@ pub const Lexer = struct {
         var lexer = Lexer{
             .source = mmap,
             .pos = 0,
-            .token = &[_]u8{},
+            .token = []const u8{},
         };
         lexer.skipIgnoredCharachters();
         return lexer;
     }
-
-    pub fn nextToken(self: *const Lexer, recognizer: anytype) !@TypeOf(recognizer(self)) {
+    pub fn nextToken(comptime T: type, self: *Lexer, recognizer: anytype) !T {
         const result = try recognizer(self);
         self.skipIgnoredCharachters();
         return result;
     }
-    pub fn currentChar(self: *const Lexer) ?u8 {
+    pub fn currentChar(self: *Lexer) ?u8 {
         if (self.pos >= self.source.len) return null;
         return self.source[self.pos];
     }
-    pub fn expectChar(self: *const Lexer) !u8 {
-        if (self.pos >= self.source.len) return error.UnexpectedEndOfFile;
+    pub fn expectChar(self: *Lexer) !u8 {
+        if (self.pos >= self.source.len) return LexerError.UnexpectedEndOfFile;
         return self.source[self.pos];
     }
-    pub fn advance(self: *const Lexer) ?u8 {
+    pub fn advance(self: *Lexer) ?u8 {
         if (self.pos >= self.source.len) return null;
         const c = self.source[self.pos];
         self.pos += 1;
         return c;
     }
-    pub fn consume(self: *const Lexer) void {
+    pub fn consume(self: *Lexer) void {
         self.pos += 1;
     }
-    fn skipIgnoredCharachers(self: *Lexer) void {
+    fn skipIgnoredCharachters(self: *Lexer) void {
         self.skipWhiteSpace();
         var char: u8 = undefined;
         while (true) {
             char = self.currentChar() orelse return;
             if (char != '#') break;
-            recognizeBlock(self,'#');
+            recognizeBlock(self, '#');
             self.skipWhiteSpace();
         }
     }
@@ -126,14 +125,14 @@ fn isAlphaHex(char: u8) bool {
     return c >= 'a' and c <= 'f';
 }
 fn isHex(char: u8) bool {
-    return isDigit(char) or isAlphaHex(char); 
+    return isDigit(char) or isAlphaHex(char);
 }
 pub fn recognizeHexidecimal(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     };
     if (!isHex(char)) {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     }
     const remaining = lexer.source.len - lexer.pos;
 
@@ -147,11 +146,11 @@ pub fn recognizeHexidecimal(lexer: *Lexer) !void {
     }
 
     // Branch prediction should hit this branch
-    const A_1:  @Vector(16, u8) = @splat('a' - 1);
-    const F_1:  @Vector(16, u8) = @splat('f' + 1); 
-    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
-    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
-    const OR20: @Vector(16, u8) = @splat(0x20); 
+    const A_1: @Vector(16, u8) = @splat('a' - 1);
+    const F_1: @Vector(16, u8) = @splat('f' + 1);
+    const D0_1: @Vector(16, u8) = @splat('0' - 1);
+    const D9_1: @Vector(16, u8) = @splat('9' + 1);
+    const OR20: @Vector(16, u8) = @splat(0x20);
 
     var p = lexer.source.ptr + lexer.pos;
     // Calculate the safe limit for 16-byte loads
@@ -189,10 +188,10 @@ pub fn recognizeHexidecimal(lexer: *Lexer) !void {
 }
 pub fn recognizeBinary(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     };
     if (!isDigit(char)) {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     }
     const remaining = lexer.source.len - lexer.pos;
 
@@ -200,14 +199,14 @@ pub fn recognizeBinary(lexer: *Lexer) !void {
     if (remaining < 16) {
         while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
             const c = lexer.source[lexer.pos];
-            if (c != '0' or c != '1') break;
+            if (c != '0' and c != '1') break;
         }
         return;
     }
 
     // Branch prediction should hit this branch
-    const D0: @Vector(16, u8) = @splat('0'); 
-    const D1: @Vector(16, u8) = @splat('1'); 
+    const D0: @Vector(16, u8) = @splat('0');
+    const D1: @Vector(16, u8) = @splat('1');
 
     var p = lexer.source.ptr + lexer.pos;
     // Calculate the safe limit for 16-byte loads
@@ -216,7 +215,7 @@ pub fn recognizeBinary(lexer: *Lexer) !void {
     while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
         const v: @Vector(16, u8) = p[0..16].*;
 
-        const isCharBin = (v & D0) | (v & D1);
+        const isCharBin = (v == D0) | (v == D1);
 
         // Convert the boolean vector into a 16-bit integer mask
         const mask: u16 = @bitCast(isCharBin);
@@ -240,10 +239,10 @@ pub fn recognizeBinary(lexer: *Lexer) !void {
 
 pub fn recognizeInteger(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     };
     if (!isDigit(char)) {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     }
     const remaining = lexer.source.len - lexer.pos;
 
@@ -257,8 +256,8 @@ pub fn recognizeInteger(lexer: *Lexer) !void {
     }
 
     // Branch prediction should hit this branch
-    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
-    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
+    const D0_1: @Vector(16, u8) = @splat('0' - 1);
+    const D9_1: @Vector(16, u8) = @splat('9' + 1);
 
     var p = lexer.source.ptr + lexer.pos;
     // Calculate the safe limit for 16-byte loads
@@ -290,7 +289,7 @@ pub fn recognizeInteger(lexer: *Lexer) !void {
 }
 pub fn recognizeNumeric(lexer: *Lexer) !NumericType {
     var char = try lexer.expectChar();
-    if (char < '0' or char > '9') return error.UnexpectedCharachter;
+    if (char < '0' or char > '9') return LexerError.UnexpectedCharachter;
     const numericTokenStart = lexer.pos;
     lexer.consume();
 
@@ -304,7 +303,7 @@ pub fn recognizeNumeric(lexer: *Lexer) !NumericType {
             lexer.consume();
             try recognizeHexidecimal(lexer);
             lexer.token = lexer.source[numericTokenStart..lexer.pos];
-            return NumericType.HEX;        
+            return NumericType.HEX;
         },
         'b', 'B' => {
             lexer.consume();
@@ -327,9 +326,8 @@ pub fn recognizeNumeric(lexer: *Lexer) !NumericType {
             try recognizeInteger(lexer);
             lexer.token = lexer.source[numericTokenStart..lexer.pos];
             return NumericType.FLOAT;
-
         },
-        else => return error.UnexpectedCharachter,
+        else => return LexerError.UnexpectedCharachter,
     }
 }
 const Keyword = enum {
@@ -404,11 +402,11 @@ pub fn classifyIdentifier(lexer: *Lexer) !Keyword {
 }
 pub fn recognizeIdentifier(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return error.InvalidCharachter;
+        return LexerError.InvalidCharachter;
     };
     if (char == '_') return;
-    if (!isAlhpa(char)) {
-        return error.InvalidCharachter;
+    if (!isAlpha(char)) {
+        return LexerError.InvalidCharachter;
     }
     const remaining = lexer.source.len - lexer.pos;
 
@@ -416,18 +414,18 @@ pub fn recognizeIdentifier(lexer: *Lexer) !void {
     if (remaining < 16) {
         while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
             const c = lexer.source[lexer.pos];
-            if (!isAlpha(c) or !isDigit(c)) break;
+            if (!isAlpha(c) or !isDigit(c) or c != '_') break;
         }
         return;
     }
 
     // Branch prediction should hit this branch
-    const A_1:  @Vector(16, u8) = @splat('a' - 1);
-    const Z_1:  @Vector(16, u8) = @splat('z' + 1); 
-    const D0_1: @Vector(16, u8) = @splat('0' - 1); 
-    const D9_1: @Vector(16, u8) = @splat('9' + 1); 
+    const A_1: @Vector(16, u8) = @splat('a' - 1);
+    const Z_1: @Vector(16, u8) = @splat('z' + 1);
+    const D0_1: @Vector(16, u8) = @splat('0' - 1);
+    const D9_1: @Vector(16, u8) = @splat('9' + 1);
     const UNDR: @Vector(16, u8) = @splat('_');
-    const OR20: @Vector(16, u8) = @splat(0x20); 
+    const OR20: @Vector(16, u8) = @splat(0x20);
 
     var p = lexer.source.ptr + lexer.pos;
     // Calculate the safe limit for 16-byte loads
@@ -441,7 +439,7 @@ pub fn recognizeIdentifier(lexer: *Lexer) !void {
 
         const isCharAlpha = (lower > A_1) & (lower < Z_1);
         const isCharDigit = (v > D0_1) & (v < D9_1);
-        const isUnderScore = v & UNDR;
+        const isUnderScore = v == UNDR;
 
         const isValidChar = (isCharAlpha | isCharDigit) | isUnderScore;
 
@@ -461,11 +459,11 @@ pub fn recognizeIdentifier(lexer: *Lexer) !void {
     lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
     while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
         const c = lexer.source[lexer.pos];
-        if (!isAlhpa(c) || !isDigit(c)) break;
+        if (!isAlpha(c) || !isDigit(c) || c != '_') break;
     }
 }
 
-fn recognizeBlock(lexer: *Lexer, char: u8) !void {
+fn recognizeBlock(lexer: *Lexer, char: u8) void {
     var escaped: bool = false;
     const startOfBlock: usize = lexer.pos;
     lexer.consume();
@@ -473,7 +471,7 @@ fn recognizeBlock(lexer: *Lexer, char: u8) !void {
     var c: u8 = undefined;
     while (true) {
         c = lexer.currentChar() orelse {
-            lexer.token = lexer.source[startOfBlock..(startOfBlock + 1)];
+            lexer.token = lexer.source[startOfBlock..lexer.pos];
             return;
         };
         if (c == '\\') {
@@ -485,15 +483,15 @@ fn recognizeBlock(lexer: *Lexer, char: u8) !void {
         lexer.consume();
     }
     lexer.token = lexer.source[startOfBlock..(startOfBlock + 1)];
-}       
+}
 pub fn recognizeStrLiteral(lexer: *Lexer) !void {
-    const char: u8 = lexer.currentChar() orelse return error.UnexpectedEndOfFile;
-    
-    if (char != '"' or char != '\'') return error.UnexpectedCharachter;
+    const char: u8 = lexer.currentChar() orelse return LexerError.UnexpectedEndOfFile;
+
+    if (char != '"' and char != '\'') return LexerError.UnexpectedCharachter;
     const startOfString = lexer.pos;
     lexer.consume();
-    
-    recognizeBlock(lexer,char);
+
+    recognizeBlock(lexer, char);
     lexer.token = lexer.source[startOfString..lexer.pos];
 }
 
@@ -911,8 +909,7 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         else => {
             lexer.pos -= 1;
-            return error.UnexpectedCharachter;
+            return LexerError.UnexpectedCharachter;
         },
     }
 }
-
