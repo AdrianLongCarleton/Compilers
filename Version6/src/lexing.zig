@@ -25,8 +25,8 @@ pub const Lexer = struct {
         try recognizer(self);
         self.skipWhiteSpace(self);
     }
-    pub fn currentChar(self: Lexer) !u8 {
-        if (self.pos >= self.source.len) return error.UnexpectedEndOfFile;
+    pub fn currentChar(self: *const Lexer) ?u8 {
+        if (self.pos >= self.source.len) return null;
         return self.source[self.pos];
     }
     fn skipWhiteSpace(self: *Lexer) void {
@@ -134,7 +134,7 @@ pub const SymbolType = union(enum) {
     }
 };
 pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
-    var char = try lexer.currentChar();
+    var char = lexer.currentChar() orelse return error.UnexepectedEndOfFile;
     switch (char) {
         ',', '(', ')', '[', ']', '{', '}' => {
             lexer.pos += 1;
@@ -150,10 +150,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         '=' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .ASSIGNMENT = AssignmentOperator.DEFAULT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.DEFAULT,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -167,44 +165,38 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         '/' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .ASSIGNMENT = AssignmentOperator.DIVIDE,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.DIVIDE,
             };
             if (char == '=') {
                 lexer.pos += 1;
                 return SymbolType{
-                    .OPERATOR = Operator.DIVIDE,
+                    .ASSIGNMENT = AssignmentOperator.DIVIDE,
                 };
             }
             return SymbolType{
-                .ASSIGNMENT = AssignmentOperator.DIVIDE,
+                .OPERATOR = Operator.DIVIDE,
             };
         },
         '%' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .ASSIGNMENT = AssignmentOperator.MODULO,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.MODULO,
             };
             if (char == '=') {
                 lexer.pos += 1;
                 return SymbolType{
-                    .OPERATOR = Operator.MODULO,
+                    .ASSIGNMENT = AssignmentOperator.MODULO,
                 };
             }
             return SymbolType{
-                .ASSIGNMENT = AssignmentOperator.MODULO,
+                .OPERATOR = Operator.MODULO,
             };
         },
         '!' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.NOT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.NOT,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -213,15 +205,13 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 };
             }
             return SymbolType{
-                .OPERATOR = Operator.NOT_EQUALS,
+                .OPERATOR = Operator.NOT,
             };
         },
         '.' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.DOT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.DOT,
             };
             if (char == '.') {
                 lexer.pos += 1;
@@ -235,10 +225,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         '&' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.BITWISE_AND,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.BITWISE_AND,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -258,10 +246,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         },
         '|' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.BITWISE_OR,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.BITWISE_OR,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -283,10 +269,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         // +; +=; +%; +|; +%=; +|=;
         '+' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.ADD,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.ADD,
             };
             switch (char) {
                 '=' => {
@@ -297,29 +281,33 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 },
                 '%' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .MOD_OPERATOR = Operator.ADD,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .MOD_OPERATOR = Operator.ADD,
                     };
                     if (char != '=') {
                         return SymbolType{
                             .MOD_OPERATOR = Operator.ADD,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .MOD_ASSIGNMENT = AssignmentOperator.ADD,
+                    };
                 },
                 '|' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .SAT_OPERATOR = Operator.ADD,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .SAT_OPERATOR = Operator.ADD,
                     };
                     if (char != '=') {
                         return SymbolType{
                             .SAT_OPERATOR = Operator.ADD,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .SAT_ASSIGNMENT = AssignmentOperator.ADD,
+                    };
                 },
                 else => return SymbolType{
                     .OPERATOR = Operator.ADD,
@@ -330,10 +318,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         // -; -=; -%; -|; -%=; -|=;
         '-' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.SUBTRACT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.SUBTRACT,
             };
             switch (char) {
                 '=' => {
@@ -344,29 +330,33 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 },
                 '%' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .MOD_OPERATOR = Operator.SUBTRACT,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .MOD_OPERATOR = Operator.SUBTRACT,
                     };
                     if (char != '=') {
                         return SymbolType{
                             .MOD_OPERATOR = Operator.SUBTRACT,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .MOD_ASSIGNMENT = AssignmentOperator.SUBTRACT,
+                    };
                 },
                 '|' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .SAT_OPERATOR = Operator.SUBTRACT,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .SAT_OPERATOR = Operator.SUBTRACT,
                     };
                     if (char != '=') {
                         return SymbolType{
                             .SAT_OPERATOR = Operator.SUBTRACT,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .SAT_ASSIGNMENT = AssignmentOperator.SUBTRACT,
+                    };
                 },
                 else => return SymbolType{
                     .OPERATOR = Operator.SUBTRACT,
@@ -377,10 +367,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         // *; *=; *%; *|; *%=; *|=;
         '*' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.MULTIPLY,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.MULTIPLY,
             };
             switch (char) {
                 '=' => {
@@ -391,29 +379,33 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 },
                 '%' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .MOD_OPERATOR = Operator.MULITPLY,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .MOD_OPERATOR = Operator.MULTIPLY,
                     };
                     if (char != '=') {
                         return SymbolType{
-                            .MOD_OPERATOR = Operator.MULITPLY,
+                            .MOD_OPERATOR = Operator.MULTIPLY,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .MOD_ASSIGNMENT = AssignmentOperator.MULTIPLY,
+                    };
                 },
                 '|' => {
                     lexer.pos += 1;
-                    char = lexer.currentChar() catch {
-                        return SymbolType{
-                            .SAT_OPERATOR = Operator.MULITPLY,
-                        };
+                    char = lexer.currentChar() orelse return SymbolType{
+                        .SAT_OPERATOR = Operator.MULTIPLY,
                     };
                     if (char != '=') {
                         return SymbolType{
-                            .SAT_OPERATOR = Operator.MULITPLY,
+                            .SAT_OPERATOR = Operator.MULTIPLY,
                         };
                     }
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .SAT_ASSIGNMENT = AssignmentOperator.MULTIPLY,
+                    };
                 },
                 else => return SymbolType{
                     .OPERATOR = Operator.MULTIPLY,
@@ -423,10 +415,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         // <; <=; <<; <<=; <<|=;
         '<' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.LESS_THAN,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.LESS_THAN,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -434,16 +424,14 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                     .OPERATOR = Operator.LESS_THAN_OR_EQUAL_TO,
                 };
             }
-            if (char != '>') {
+            if (char != '<') {
                 return SymbolType{
                     .OPERATOR = Operator.LESS_THAN,
                 };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.BITSHIFT_LEFT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.BITSHIFT_LEFT,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -457,10 +445,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .SAT_OPERATOR = Operator.BITSHIFT_LEFT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .SAT_OPERATOR = Operator.BITSHIFT_LEFT,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -475,10 +461,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
         // >; >=; >>=; >>|; >>|=;
         '>' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.GREATER_THAN,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.GREATER_THAN,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -492,10 +476,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .OPERATOR = Operator.BITSHIFT_RIGHT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .OPERATOR = Operator.BITSHIFT_RIGHT,
             };
             if (char == '=') {
                 lexer.pos += 1;
@@ -509,10 +491,8 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
                 };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch {
-                return SymbolType{
-                    .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
-                };
+            char = lexer.currentChar() orelse return SymbolType{
+                .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
             };
             if (char == '=') {
                 lexer.pos += 1;
