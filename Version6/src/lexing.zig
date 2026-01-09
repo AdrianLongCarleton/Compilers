@@ -81,38 +81,40 @@ pub const Lexer = struct {
     }
 };
 pub const AssignmentOperator = enum {
-    DEFAULT,        //   =
-    ADD,            //  +=
-    SUBTRACT,       //  -=
-    MULTIPLY,       //  *=
-    DIVIDE,         //  /=
-    MODULO,         //  %=
-    OR,             //  |=
-    AND,            //  &=
-    XOR,            //  ^=
-    BITSHIFT_LEFT,  // <<=
+    DEFAULT, //   =
+    ADD, //  +=
+    SUBTRACT, //  -=
+    MULTIPLY, //  *=
+    DIVIDE, //  /=
+    MODULO, //  %=
+    OR, //  |=
+    AND, //  &=
+    XOR, //  ^=
+    BITSHIFT_LEFT, // <<=
     BITSHIFT_RIGHT, // >>=
 };
 pub const Operator = enum {
-    EQUALS,                   // ==
-    GREATER_THAN,             // >
+    EQUALS, // ==
+    GREATER_THAN, // >
     GREATER_THAN_OR_EQUAL_TO, // >=
-    LESS_THAN,                // <
-    LESS_THAN_OR_EQUAL_TO,    // <=
-    NOT,                      // !
-    NOT_EQUALS,               // !-
-    OR,                       // ||
-    AND,                      // &&
-    XOR,                      // ^
-    ADD,                      // +
-    SUBTRACT,                 // -
-    MULTIPLY,                 // *
-    DIVIDE,                   // /
-    MODULO,                   // %
-    BITSHIFT_LEFT,            // <<
-    BITSHIFT_RIGHT,           // >>
-    ADDRESS,                  // &
-    REFERENCE,                // ~
+    LESS_THAN, // <
+    LESS_THAN_OR_EQUAL_TO, // <=
+    NOT, // !
+    NOT_EQUALS, // !-
+    OR, // ||
+    AND, // &&
+    XOR, // ^
+    ADD, // +
+    SUBTRACT, // -
+    MULTIPLY, // *
+    DIVIDE, // /
+    MODULO, // %
+    BITSHIFT_LEFT, // <<
+    BITSHIFT_RIGHT, // >>
+    ADDRESS, // &
+    REFERENCE, // ~
+    DOT, // .
+    RANGE, // ..
 };
 pub const SymbolType = union(enum) {
     ASSIGNMENT: AssignmentOperator,
@@ -121,148 +123,407 @@ pub const SymbolType = union(enum) {
     OPERATOR: Operator,
     SAT_OPERATOR: Operator,
     MOD_OPERATOR: Operator,
+    SYMBOL: u8,
 
-    pub fn isAssignment(self) SymbolType {
+    pub fn isAssignment(self: SymbolType) bool {
         return switch (self) {
-            .ASSIGNMENT,
-            .SAT_ASSIGNMENT,
-            .MOD_ASSIGNMENT => true,
+            .ASSIGNMENT, .SAT_ASSIGNMENT, .MOD_ASSIGNMENT => true,
 
-            .OPERATOR,
-            .SAT_OPERATOR,
-            .MOD_OPERATOR => false,
+            .OPERATOR, .SAT_OPERATOR, .MOD_OPERATOR => false,
         };
     }
 };
 pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
-    const tokenStart: usize = lexer.pos;
     var char = try lexer.currentChar();
-    SymbolType symbol = switch (char) {
-        '+' => ret: {
+    switch (char) {
+        ',', '(', ')', '[', ']', '{', '}' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.OPERATOR = Operator.ADD,};
+            return SymbolType{
+                .SYMBOL = char,
             };
-            switch (char) {
-                '=' => {
-                    break :ret SymbolType{.ASSIGNMENT = AsignmentOperator.ADD,};
-                },
-                '%' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.ADD,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.ADD,};
-                    }
-                },
-                '|' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.ADD,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.ADD,};
-                    }
-                },
-                else => break :ret SymbolType{.OPERATOR = Operator.ADD,},
-            }
         },
-
-        '-' => ret: {
+        '~' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.OPERATOR = Operator.SUBTRACT,};
+            return SymbolType{
+                .OPERATOR = Operator.REFERENCE,
             };
-            switch (char) {
-                '=' => {
-                    break :ret SymbolType{.ASSIGNMENT = AsignmentOperator.SUBTRACT,};
-                },
-                '%' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.SUBTRACT,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.SUBTRACT,};
-                    }
-                },
-                '|' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.SUBTRACT,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.SUBTRACT,};
-                    }
-                },
-                else => break :ret SymbolType{.OPERATOR = Operator.SUBTRACT,},
-            }
         },
-
-        '*' => ret: {
+        '=' => {
             lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.OPERATOR = Operator.MULTIPLY,};
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.DEFAULT,
+                };
             };
-            switch (char) {
-                '=' => {
-                    break :ret SymbolType{.ASSIGNMENT = AsignmentOperator.MULTIPLY,};
-                },
-                '%' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.MULITPLY,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.MOD_OPERATOR = Operator.MULITPLY,};
-                    }
-                },
-                '|' => {
-                    lexer.pos += 1;
-                    char = lexer.currentChar() catch |err| {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.MULITPLY,};
-                    }
-                    if (char != '=') {
-                        break :ret SymbolType{.SAT_OPERATOR = Operator.MULITPLY,};
-                    }
-                },
-                else => break :ret SymbolType{.OPERATOR = Operator.MULTIPLY,},
-            }
-        },
-        '<',
-        '>' => ret: {
-            lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.OPERATOR = Operator.GREATER_THAN,};
-            }
             if (char == '=') {
                 lexer.pos += 1;
-                break :ret SymbolType{.OPERATOR = Operator.GREATER_THAN_OR_EQUAL_TO,};
+                return SymbolType{
+                    .OPERATOR = Operator.EQUALS,
+                };
+            }
+            return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.DEFAULT,
+            };
+        },
+        '/' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.DIVIDE,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.DIVIDE,
+                };
+            }
+            return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.DIVIDE,
+            };
+        },
+        '%' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.MODULO,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.MODULO,
+                };
+            }
+            return SymbolType{
+                .ASSIGNMENT = AssignmentOperator.MODULO,
+            };
+        },
+        '!' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.NOT,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.NOT_EQUALS,
+                };
+            }
+            return SymbolType{
+                .OPERATOR = Operator.NOT_EQUALS,
+            };
+        },
+        '.' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.DOT,
+                };
+            };
+            if (char == '.') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.RANGE,
+                };
+            }
+            return SymbolType{
+                .OPERATOR = Operator.DOT,
+            };
+        },
+        '&' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.BITWISE_AND,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.AND,
+                };
+            }
+            if (char == '&') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.AND,
+                };
+            }
+            return SymbolType{
+                .OPERATOR = Operator.BITWISE_AND,
+            };
+        },
+        '|' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.BITWISE_OR,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.OR,
+                };
+            }
+            if (char == '|') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.OR,
+                };
+            }
+            return SymbolType{
+                .OPERATOR = Operator.BITWISE_OR,
+            };
+        },
+
+        // +; +=; +%; +|; +%=; +|=;
+        '+' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.ADD,
+                };
+            };
+            switch (char) {
+                '=' => {
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .ASSIGNMENT = AssignmentOperator.ADD,
+                    };
+                },
+                '%' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.ADD,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.ADD,
+                        };
+                    }
+                },
+                '|' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.ADD,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.ADD,
+                        };
+                    }
+                },
+                else => return SymbolType{
+                    .OPERATOR = Operator.ADD,
+                },
+            }
+        },
+
+        // -; -=; -%; -|; -%=; -|=;
+        '-' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.SUBTRACT,
+                };
+            };
+            switch (char) {
+                '=' => {
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .ASSIGNMENT = AssignmentOperator.SUBTRACT,
+                    };
+                },
+                '%' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.SUBTRACT,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.SUBTRACT,
+                        };
+                    }
+                },
+                '|' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.SUBTRACT,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.SUBTRACT,
+                        };
+                    }
+                },
+                else => return SymbolType{
+                    .OPERATOR = Operator.SUBTRACT,
+                },
+            }
+        },
+
+        // *; *=; *%; *|; *%=; *|=;
+        '*' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.MULTIPLY,
+                };
+            };
+            switch (char) {
+                '=' => {
+                    lexer.pos += 1;
+                    return SymbolType{
+                        .ASSIGNMENT = AssignmentOperator.MULTIPLY,
+                    };
+                },
+                '%' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.MULITPLY,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .MOD_OPERATOR = Operator.MULITPLY,
+                        };
+                    }
+                },
+                '|' => {
+                    lexer.pos += 1;
+                    char = lexer.currentChar() catch {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.MULITPLY,
+                        };
+                    };
+                    if (char != '=') {
+                        return SymbolType{
+                            .SAT_OPERATOR = Operator.MULITPLY,
+                        };
+                    }
+                },
+                else => return SymbolType{
+                    .OPERATOR = Operator.MULTIPLY,
+                },
+            }
+        },
+        // <; <=; <<; <<=; <<|=;
+        '<' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.LESS_THAN,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.LESS_THAN_OR_EQUAL_TO,
+                };
             }
             if (char != '>') {
-                break :ret SymbolType{.OPERATOR = Operator.GREATER_THAN,};
+                return SymbolType{
+                    .OPERATOR = Operator.LESS_THAN,
+                };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.OPERATOR = Operator.BITSHIFT_RIGHT,};   
-            }
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.BITSHIFT_LEFT,
+                };
+            };
             if (char == '=') {
                 lexer.pos += 1;
-                break :ret SymbolType{.ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,};   
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.BITSHIFT_LEFT,
+                };
             }
             if (char != '|') {
-                break :ret SymbolType{.OPERATOR = Operator.BITSHIFT_RIGHT,};
+                return SymbolType{
+                    .OPERATOR = Operator.BITSHIFT_LEFT,
+                };
             }
             lexer.pos += 1;
-            char = lexer.currentChar() catch |_| {
-                break :ret SymbolType{.SAT_OPERATOR = Operator.BITSHIFT_RIGHT,};
-            }
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .SAT_OPERATOR = Operator.BITSHIFT_LEFT,
+                };
+            };
             if (char == '=') {
                 lexer.pos += 1;
-                break :ret SymbolType{.SAT_ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,};
+                return SymbolType{
+                    .SAT_ASSIGNMENT = AssignmentOperator.BITSHIFT_LEFT,
+                };
             }
-            break :ret SymbolType{.SAT_OPERATOR = Operator.BITSHIFT_RIGHT,};
+            return SymbolType{
+                .SAT_OPERATOR = Operator.BITSHIFT_LEFT,
+            };
         },
-    };
+        // >; >=; >>=; >>|; >>|=;
+        '>' => {
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.GREATER_THAN,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .OPERATOR = Operator.GREATER_THAN_OR_EQUAL_TO,
+                };
+            }
+            if (char != '>') {
+                return SymbolType{
+                    .OPERATOR = Operator.GREATER_THAN,
+                };
+            }
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .OPERATOR = Operator.BITSHIFT_RIGHT,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,
+                };
+            }
+            if (char != '|') {
+                return SymbolType{
+                    .OPERATOR = Operator.BITSHIFT_RIGHT,
+                };
+            }
+            lexer.pos += 1;
+            char = lexer.currentChar() catch {
+                return SymbolType{
+                    .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
+                };
+            };
+            if (char == '=') {
+                lexer.pos += 1;
+                return SymbolType{
+                    .SAT_ASSIGNMENT = AssignmentOperator.BITSHIFT_RIGHT,
+                };
+            }
+            return SymbolType{
+                .SAT_OPERATOR = Operator.BITSHIFT_RIGHT,
+            };
+        },
+        else => return error.UnexpectedCharachter,
+    }
 }
