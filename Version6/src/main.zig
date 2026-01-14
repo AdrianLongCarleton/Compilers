@@ -14,6 +14,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Version6 = @import("Version6");
+const Lexing = Version6.Lexing;
 
 pub const MMap = struct {
     ptr: []align(std.heap.page_size_min) u8,

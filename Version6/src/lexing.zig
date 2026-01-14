@@ -9,6 +9,7 @@ pub const LexerError = error{
     UnexpectedEndOfFile,
     InvalidToken,
 };
+
 pub const Lexer = struct {
     source: []const u8,
     pos: usize,
@@ -20,13 +21,11 @@ pub const Lexer = struct {
             .pos = 0,
             .token = []const u8{},
         };
-        lexer.skipIgnoredCharachters();
+        lexer.skipIgnored();
         return lexer;
     }
-    pub fn nextToken(comptime T: type, self: *Lexer, recognizer: anytype) !T {
-        const result = try recognizer(self);
-        self.skipIgnoredCharachters();
-        return result;
+    pub fn atEnd(self: *Lexer) bool {
+        return self.pos >= self.source.len;
     }
     pub fn currentChar(self: *Lexer) ?u8 {
         if (self.pos >= self.source.len) return null;
@@ -45,7 +44,7 @@ pub const Lexer = struct {
     pub fn consume(self: *Lexer) void {
         self.pos += 1;
     }
-    fn skipIgnoredCharachters(self: *Lexer) void {
+    fn skipIgnored(self: *Lexer) void {
         self.skipWhiteSpace();
         var char: u8 = undefined;
         while (true) {
@@ -54,6 +53,7 @@ pub const Lexer = struct {
             recognizeBlock(self, '#');
             self.skipWhiteSpace();
         }
+        return;
     }
     fn skipWhiteSpace(self: *Lexer) void {
         const remaining = self.source.len - self.pos;
@@ -105,8 +105,61 @@ pub const Lexer = struct {
             const c = self.source[self.pos];
             if (c == '\n' or c > 0x20) break;
         }
+        return;
     }
 };
+pub fn recognizeEndOfStatement(lexer: *Lexer) !usize {
+    const char = lexer.advance() orelse {
+        return LexerError.UnexpectedEndOfFile;
+    };
+    if (char == ';' or char == '\n' or char == '#' or char == '}') return lexer.pos;
+    const remaining = lexer.source.len - lexer.pos;
+    const start = lexer.pos;
+
+    // Fallback for the very end of the file (scalar skip)
+    if (remaining < 16) {
+        while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+            const c = lexer.source[lexer.pos];
+            if (c == ';' or c == '\n' or c == '#' or c == '}') break;
+        }
+        return start;
+    }
+
+    // Branch prediction should hit this branch
+    const NEWLINE: @Vector(16, u8) = @splat('\n');
+    const SEMICOLON: @Vector(16, u8) = @splat(';');
+    const HASHTAG: @Vector(16, u8) = @splat('#');
+    const CURLYBRACE: @Vector(16, u8) = @splat('}');
+
+    var p = lexer.source.ptr + lexer.pos;
+    // Calculate the safe limit for 16-byte loads
+    const end_ptr = lexer.source.ptr + lexer.source.len - 16;
+
+    while (@intFromPtr(p) <= @intFromPtr(end_ptr)) {
+        const v: @Vector(16, u8) = p[0..16].*;
+
+        const boolVector = ((v == NEWLINE) | (v == SEMICOLON)) | ((v == HASHTAG) | (v == CURLYBRACE));
+
+        // Convert the boolean vector into a 16-bit integer mask
+        const mask: u16 = @bitCast(boolVector);
+
+        if (mask != 0) {
+            // Found a non symbol hexidecimal
+            lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr) + @ctz(~mask);
+            return start;
+        }
+
+        p += 16;
+    }
+
+    // Final tail check if SIMD finished without finding a stop character
+    lexer.pos = @intFromPtr(p) - @intFromPtr(lexer.source.ptr);
+    while (lexer.pos < lexer.source.len) : (lexer.pos += 1) {
+        const c = lexer.source[lexer.pos];
+        if (c == ';' or c == '\n') break start;
+    }
+}
+
 pub const NumericType = enum {
     INTEGER,
     HEX,
@@ -129,7 +182,7 @@ fn isHex(char: u8) bool {
 }
 pub fn recognizeHexidecimal(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return LexerError.InvalidCharachter;
+        return LexerError.UnexpectedEndOfFile;
     };
     if (!isHex(char)) {
         return LexerError.InvalidCharachter;
@@ -320,7 +373,7 @@ pub fn recognizeNumeric(lexer: *Lexer) !NumericType {
         '0'...'9' => {
             try recognizeInteger(lexer);
             lexer.token = lexer.source[numericTokenStart..lexer.pos];
-            char == lexer.currentChar() orelse return NumericType.INTEGER;
+            char = lexer.currentChar() orelse return NumericType.INTEGER;
             if (char != '.') return NumericType.INTEGER;
             lexer.consume();
             try recognizeInteger(lexer);
@@ -394,15 +447,15 @@ const KeywordMap = std.StaticStringMap(Keyword).initComptime(.{
     .{ "null", .NULL },
 });
 
-pub fn classifyIdentifier(lexer: *Lexer) !Keyword {
+pub fn recognizeKeyword(lexer: *Lexer) !Keyword {
     const identifierStartPos = lexer.pos;
     try recognizeIdentifier(lexer);
     lexer.token = lexer.source[identifierStartPos..lexer.pos];
-    return KeywordMap.get(lexer.token) orelse .IDENTIFIER;
+    return KeywordMap.get(lexer.token) orelse Keyword.IDENTIFIER;
 }
 pub fn recognizeIdentifier(lexer: *Lexer) !void {
     const char = lexer.advance() orelse {
-        return LexerError.InvalidCharachter;
+        return LexerError.UnexpectedEndOfFile;
     };
     if (char == '_') return;
     if (!isAlpha(char)) {
@@ -544,7 +597,6 @@ pub const SymbolType = union(enum) {
     pub fn isAssignment(self: SymbolType) bool {
         return switch (self) {
             .ASSIGNMENT, .SAT_ASSIGNMENT, .MOD_ASSIGNMENT => true,
-
             .OPERATOR, .SAT_OPERATOR, .MOD_OPERATOR => false,
         };
     }
@@ -553,7 +605,7 @@ pub fn recognizeSymbol(lexer: *Lexer) !SymbolType {
     var char = try lexer.expectChar();
     lexer.consume();
     switch (char) {
-        ';', ',', '(', ')', '[', ']', '{', '}' => {
+        '\n', ';', ',', '(', ')', '[', ']', '{', '}' => {
             return SymbolType{
                 .SYMBOL = char,
             };

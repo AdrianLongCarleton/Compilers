@@ -1,0 +1,356 @@
+Grammar and syntax:
+
+Linguistics defines a grammar as the structure of a language. From a
+top down perspective a grammar is a collection of transformation that
+can be used to produce any given sentance that a grammar can describe.
+A transformation is structured as an input, a '>' as a seperator, and
+a output followed by a ';' to mark the end of the rule.
+
+input > output;
+
+node that '>' means produces. The rule reads: "input produces output."
+
+The most powerfull transformations are inutile for coding language
+design and follow the format where multiple 'words' are on the left
+hand side of the '>' and multiple 'words' are on the right hand side
+of the '>'.
+
+left hand side > right hand side;
+
+This preceding rule is used in context sensitive grammars like the
+english language. For coding languages we restrict ourselves to
+context free grammars in the form.
+
+oneThingOnTheRightHandSide > multiple things on the right hand side;
+
+This is usefull because you can construct trees structures.
+
+For example the grammar.
+A > B;
+B > C;
+B > D;
+can be represented as a tree:
+A -> B -> C
+     |
+     v
+     D
+
+Next we add some special terms.
+Terminals occur in the right hand side are any word that does not
+produce another nonTerminal.
+non terminals may occur on either side and can produce terminals or
+other non terminals. When ever a digit: 2, a char: 'c' or a string: "text"
+or the words epsilon or any occur they are terminals. Everything else is a non
+terminals.
+
+The any terminal is place holder terminal for any other terminal
+except epsilon.
+
+The terminal epsilon specifically means nothing.
+If we have a grammar:
+nonTerminal > "hello world! " nonTerminal;
+nonTerminal > epsilon;
+We can read this in english as:
+nonTerminal produces the string "hello world" followed by itself.
+and
+nonTerminal produces nothing.
+It can therefore be reasoned about that this grammar represents a
+any number of string "hello world" repeated over and over.
+nonTerminal -> "hello world" nonTerminal;
+                                  |
+                                  v
+                             "hello world" nonTerminal;
+                                                |
+                                                v
+                                             epsilon;
+In essence "hello worldhello worldhello world..." is a recognized
+sentance according to this grammar.
+
+sentance > "nice" 4 'u';
+
+One more thing.
+digit > 0;
+digit > 1;
+digit > 2;
+digit > 3;
+digit > 4;
+digit > 5;
+digit > 6;
+digit > 7;
+digit > 8;
+digit > 9;
+
+Can be succinclty written as:
+digit > 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+Where '|' means and. The previous rule can therefore be read as:
+digit produces 0 and 1 and 2 and 3 and 4 and 5 and 6 and 7 and 8 and
+9. 
+
+And even more succinctly:
+digit > 0 | ... | 9;
+Which can be read as digit produces the digits 0 up to 9.
+
+The happy medium is usually:
+digit > 0 | 1 | 2 | ... | 9; 
+To give a bit more clarity.
+
+Lastly keep in mind that any grammar written in this documment is only
+for demonstrational purposes and does not always map 1 to 1 to how it
+is implemented in the parser.
+
+Philosophy:
+1. The type of every variable and expression must be known at compile
+   time.
+2. Types limit the values that a variable can hold.
+3. Inheritance is not supported. Instead use composition.
+4. Errors are values and participate in the type system. No special
+   control flow is provided for errors. Instead use the regular
+   regular control flow as you would for other values.
+5. No undifined behaviour. Undefined behaviour based optimization only
+   occurs when you assert your invariants.
+6. The language is a self contained tool chain. Both the build system
+   and command line interface are features handled by the language.
+   Read more in the build system and command line interface sections.
+
+Comments:
+The language does not support multiline comments. Comments begin with
+a '#' and end with one of EOF, '\n', or '#'. Comments may contain
+escaped '\\' or '\#'
+
+Numeric Types:
+
+There are three numeric types in the language. Unsigned integers,
+Signed integers, and Floats. There is no char type or string type. A
+literal begins with one of the following charachters 'u', 'i', or 'f'
+for (u)nsigned integer, signed (i)nteger, and (f)loat respectivly.
+After the type charachter each literal is followed by it's size N
+which is a positive integer in the range 1 to 128. If the size N is
+not a power of two it will be padded to the next largest power of 2
+number of bits and have its max size enforced.
+
+Syntax:
+
+numericType > signedIntegerLiteral
+            | unsignedIntegerLiteral
+            | floatLiteral
+            ;
+signedIntegerLiteral > 'i' numericTypeSize;
+unsignedIntegerLiteral > 'u' numericTypeSize;
+floatLiteral > 'f' numericTypeSize;
+numericTypeSize > 1 | ... | 8 | ... | 16 | ... | 64 | ... | 128;
+
+Example numeric types:
+i8    u8    f8
+i16   u16   f16
+i24   u24   f24
+i32   u32   f32
+i64   u64   f64
+i128  u128  f128
+
+Note that there are no string types. String must be implemented using
+data structures and will be covered later.
+
+Numeric literals:
+
+The language supports numeric literals the following forms:
+1. Integers:
+   An integer is a series of digits of any length. -ve integers are
+   handled through the expression grammar.
+
+   integer > digit integer | epsilon;
+   digit > 0 | 1 | 2 | 3 | ... | 9;
+
+2. Floats:
+   A float is a series of digit like an integer followed by a '.' and
+   another series of digits. Floats in the form "42." are illegal.
+   Instead use "42.0".
+
+   float > integer '.' integer;
+   
+   -ve floats are also handled through expressions.
+
+3. Hexidecimal:
+   A hexidecimal number is a 0 followed by an uppercase or lowercase x
+   followed by a series of hexidecimal digits.
+
+   hex > 0 X hexTail;
+   X > 'x' | 'X';
+   hexTail > hexDigit hexTail | epsilon;
+   hexDigit > 0 | 1 | 2 | ... | 9 | 'a' | 'b' | 'c' | ... | 'f';
+
+4. Binary:
+   A binary number is a 0 followed by an upperace or lowercase b
+   followed by a series of 0s or 1s.
+
+   binary > 0 B binaryTail;
+   B > 'b' | 'B';
+   binartTail > zeroOrOne binaryTail | epsilon;
+   zeroOrOne > 0 | 1;
+
+String literals:
+
+String literals follow the syntax:
+str > '"' strBody strEnd;
+strBody > strChar strBody | epsilon;
+strChar > '\' escapable | safeChar;
+safeChar > any except '"' '\' '\n';
+escapable > '\' | '"';
+
+Strings begin with quoation mark may have escaped '\"' may not cross
+'\n' boundaries and end with quotation mark. Note that a singe quote
+is interchangeable for the double quote. Different quotes may nest
+without interfereing. "the man said 'hello' and \"cheese\"". or 'the
+man said "hello" and \'cheese\''.
+
+Arrays:
+
+array > ID_opt '[' elements ']';
+ID_opt > "Array" | epsilon;
+elements > integer ',' elements | integer;
+
+Node that where Array was written any valid identifier for a generic
+data structure may be written. Additionally where elements is written
+is inacurate. See arguments for functions for more detail.
+
+Array['a','b','c','d']
+is equiavalent to
+['a','b','c','d']
+is not the same as
+List['a','b','c','d']
+
+"abcde"
+'abcde'
+String literals are semantic sugar for arrays like the following.
+['a','b','c','d','e']
+
+String get reduced to their array representation at compile time. For
+that reason generic data types that take in u8 may be called as:
+
+List"abcde"
+
+Declaring components / fields:
+
+When defining components in lang the programer must consider.
+1. Publicity:
+   Will the component be accessible outside of it's current scope?
+
+   A component can either be public meaning visible outside of the
+   current scope or private meaning only visible inside of the current
+   scope.
+
+   Publicty can be ommited when defining components. The default
+   behaviour for publicity depends on the context in which a variable
+   is declared.
+
+   publicity > "public" | "private" | epsilon;
+2. Mutability:
+   Will the data in the component be mutable?
+
+   components can either be values or variables. Lang exclusivly uses
+   their short forms "var" and "val" respectibly to mean mutable and
+   imutable. Mutability cannot be ommited like publicity.
+
+   mutability > "var" | "val";
+
+3. Type:
+   What data will the variable be allowed to hold?
+
+   Type is defined later in the section after objects.
+
+4. Identifier:
+   What will the variable be called?
+
+   An identifier is any valid component name that is not a keyword.
+
+Build system:
+
+project1:
+   package1:
+      program1.lang
+      program2.lang
+   package2:
+      program3.lang
+   build.lang:
+      public val package1 = import package1;
+      private val package2 = import package2;
+project2:
+   main.lang:
+      val package1 = import project1.package1;
+      # Illegal: val package2 = import project1.package2;
+   build.lang
+
+A folder on the file system can either be a project or package. A
+folder is a project if it contains a single build.lang file.
+Otherwise a folder is a package.
+
+A module is any file on the file system that ends with the .lang
+ending. A module is the base unit for compilation.
+
+The parent of a module, package, or project is the folder that
+immediatly contains it. A child is a module, package, or a project
+contained by a parent.
+
+Projects may contain other projects.
+
+Modules, Projects, and Packages are all namespaces for code.
+   A namespace is a hierarchical mapping from names to modules,
+   packages, or projects and does not imply compilation or execution.
+
+   The name of the module excluding the .lang ending is the
+   namespace for any given module.
+
+   importing any module, package, or project means importing it's
+   namespace and does not eagerly compile all modules unless
+   referenced
+
+   ambigous namespace between projects, packages, or modules is not
+   allowed and will result in a build error.
+
+A single build.lang file is allowed to exist in any folder.
+Otherwise the lang compiler will refuse to compile the code.
+
+All children of a project are implicity private except for the
+build.lang file which is public. A build.lang file can import
+projects, packages or modules. To import a child without exposing it
+under the projects namespace within the build.lang file, either
+ommit the publicity label (private is implied) or write the
+private keyword followed by the import statement. To define a child
+as public under a project's namespace write an import statement
+inside the build.lang file that is prefixed with the public keyword.
+
+Cyclic dependencies are not allowed.
+   Tooling will be provided to help resolve cyclic depenencies.
+Upward dependencies are not allowed.
+   1. A module may import folders or modules within the folder that
+      it is contained in.
+
+   2. A module may import folders inside the folder that it's parent
+      folder is contained in. This does not apply transitivly.
+
+   3. All other dependencies must be provided by the build.lang file
+      and are imported using the import env.dependency syntax.
+
+Import syntax:
+
+For all files except for build.lang:
+
+importStatement > "val" ID = "import" importBody;
+importBody > "env" '.' importBodyTail | ID importBodyTail;
+importBodyTail > '.' ID importBodyTail | epsilon;
+      
+For build.lang:
+
+importStatement > publicity "val" ID = "import" importBody;
+importBody > "dependency" importDependency | ID importBodyTail;
+importDependency > STR
+                 | "github" importBodyTail
+                 | "cache" importBodyTail
+                 ;
+importBodyTail > '.' ID importBodyTail | epsilon;
+
+When build.lang uses the dependency keyword and compilation begins
+build.lang will resolve all the dependencies and register them as
+accessible under env keyword. 
+
+The cache keyword refers to the cache of projects that are saved on
+the system / machine that the build is executing on.
