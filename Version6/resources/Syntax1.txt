@@ -235,6 +235,15 @@ When defining components in lang the programer must consider.
    Will the component be accessible outside of it's current scope?
 
    A component can either be public meaning visible outside of the
+ Examples (Best to Worst practice)
+         public var i32 x = 5
+         var i32 x = 5
+
+         public var x = 5:i32
+         var x = 5:i32
+
+         public var x = 5
+         var x = 5
    current scope or private meaning only visible inside of the current
    scope.
 

@@ -1,0 +1,321 @@
+Philosophy:
+1. The type of every variable and expression must be known at compile
+	time.
+2. Types limit the values that a variable can hold.
+3. Inheritance is not supported. Instead use composition.
+4. Errors are values and participate in the type system. No special
+	control flow is provided for errors. Instead use the regular
+	regular control flow as you would for other values.
+5. No undifined behaviour. Undefined behaviour based optimization only
+	occurs when you assert your invariants.
+6. The language is a self contained tool chain. Both the build system
+	and command line interface are features handled by the language.
+	Read more in the build system and command line interface sections.
+
+epsilon > ;
+
+lowercase > 'a' | 'b' | 'c' | ... | 'z';
+uppercase > 'A' | 'B' | 'C' | ... | 'Z';
+letter > lowerCase | uppercase;
+digit > 0 | 1 | 2 | ... | 9;
+
+identifier > identifierHead identifierTail;
+identifierHead > '_' | letter;
+identifierTail > '_' | letter | digit | epsilon;  
+
+Comments:
+	Comments begin with a '#' and end with '#' or a '\n'. Comments can
+	therefore not contain a '\n' as it delimites a comment. Comments
+	may contain \\ or \# where \# does not terminate a comment.
+		... # this is a comment '\n'
+		... # this is also a comment # ... '\n'
+		... # \# <-- not the end -> \\\\\# and --> # ... '\n'
+
+	Comments are not removed before parse time. Therefore:
+		"print#bad comment#ln"
+		
+		is parsed as
+		identifier print
+		identifier ln
+
+Fundamental Types:
+	Lang has signed integers (i), unsigned integers (u) and floats (f).
+	Lang's fundamental types can be any size N however each value of N
+	will be rounded to the largest power of 2. The values that the type
+	can hold is still limmited to relevant i, u, or f max size for 2^N
+	bits.
+
+	The syntax for a type is as follows:
+
+	fundamentalType > L N;
+	L > 'i' | 'u' | 'f';
+	N > 1 | 2 | 3 | ... | 128;
+
+	Example fundamental types:
+		i8    u8    f8
+		i16   u16   f16
+		i24   u24   f24
+		i32   u32   f32
+		i64   u64   f64
+		i128  u128  f128
+
+	u7 is allocated as u8 in memory.
+	u7's max value is 2^7 = 128
+
+Literals:
+	1. Integers:
+		An integer is a series of digits of any length. -ve integers are
+		handled through the expression grammar.
+
+		integer > digit integer | epsilon;
+		digit > 0 | 1 | 2 | 3 | ... | 9;
+
+	2. Floats:
+		A float is a series of digit like an integer followed by a '.' and
+		another series of digits. Floats in the form "42." are illegal.
+		Instead use "42.0".
+
+		float > integer '.' integer;
+
+		-ve floats are also handled through expressions.
+
+	3. Hexidecimal:
+		A hexidecimal number is a 0 followed by an uppercase or lowercase x
+		followed by a series of hexidecimal digits.
+
+		hex > 0 X hexTail;
+		X > 'x' | 'X';
+		hexTail > hexDigit hexTail | epsilon;
+		hexDigit > 0 | 1 | 2 | ... | 9 | 'a' | 'b' | 'c' | ... | 'f';
+
+	4. Binary:
+		A binary number is a 0 followed by an upperace or lowercase b
+		followed by a series of 0s or 1s.
+
+		binary > 0 B binaryTail;
+		B > 'b' | 'B';
+		binartTail > zeroOrOne binaryTail | epsilon;
+		zeroOrOne > 0 | 1;
+	5. Strings:
+		Strings have similar properites to comments. However there are
+		two forms one with '"' as a drop in replacement for the '#' in
+		comments and one with '\'' as the drop in replacement.
+
+		A string with '"' may contain unescaped '\'' and vice versa.
+
+		"\"I didn't tell you to 'kill' him\""
+		'"I didn\'t tell you to "kill" him"'
+
+Typed Literals:
+	Any literal can be followed by a ':' and a fundamental type. This
+	is used when the size of the literal in terms of memory is
+	important as part of an expression. Additionally this syntax is
+	used to disambiguate CLI calls of function. See the section on CLI
+	for more information.
+
+	Examples:
+		5:i32				# an i32 with the value 5
+		0xFFFFFFFF:u64 # a u64  with the value 0xFFFFFFFF
+		4.5:f128			# a f128 with the value 4.5
+		"c":u8			# a single ascii charachter
+
+	See the section on arrays for typed literals of strings with more
+	than one charachter.
+
+Components:
+	A component is an identier associated with a piece of memory.
+	
+	When defining a component the programmer must consider: 
+
+		1. Publicity: Will the component be accessible outside of it's
+		current scope?
+
+			A component can either be public meaning visible outside of
+			the current scope or private meaning only visible inside of
+			the current scope.
+
+			Publicty can be ommited when defining components. The default
+			behaviour for publicity depends on the context in which a
+			variable is declared.
+
+			publicity > "public" | "private" | epsilon;
+
+		2. Mutability:
+			Will the data in the component be mutable?
+
+			components can either be values or variables. Lang exclusivly
+			uses their short forms "var" and "val" respectibly to mean
+			mutable and imutable. Mutability cannot be ommited like
+			publicity.
+
+			Binding mutability is monotonic: a mutable binding (var) may
+			be finalized into a immutable binding (val) but an immutable
+			binding may never become mutable.
+
+			mutability > "var" | "val";
+
+		3. Type: What data will the variable be allowed to hold?
+
+			Type is defined later in the section after objects.
+
+			Type can be ommited only if the right hand side of the
+			declaration is a literal. Strings will default to stack
+			allocated array. u8[]. See arrays for more detail.
+
+		4. Identifier: What will the variable be called?
+
+			the earlier defined identifer definition is not sufficient. A
+			keyword is also an identifier. All keywords are reserved
+			identifiers and are illegal to use as component names.
+
+		Examples (Best to Worst practice)
+			public var i32 x = 5 
+			var i32 x = 5
+
+			public var x = 5:i32
+			var x = 5:i32
+
+			public var x = 5
+			var x = 5
+
+		The implicit capability is allowed only because people like it
+		so much. The language stipulates rules however.
+
+Arrays:
+	
+	arrayType > ID '[' NUM_opt ']' arrayTypeTail;
+	arrayTypeTail > '[' NUM_opt ']' arrayTypeTail | epsilon;
+	array > ID_opt '[' elements ']';
+	ID_opt > "Array" | epsilon;
+	elements > integer ',' elements | integer;
+
+	Node that where Array was written any valid identifier for a generic
+	data structure may be written. Additionally where elements is written
+	is inacurate. See arguments for functions for more detail.
+
+	Array['a','b','c','d']
+	is equiavalent to
+	['a','b','c','d']
+	is not the same as
+	List['a','b','c','d']
+
+	"abcde"
+	'abcde'
+	String literals are semantic sugar for arrays like the following.
+	['a','b','c','d','e']
+
+	arrayType fits into the type definition for a declaration and array
+	fits into the right hand side for the instatiation.
+
+	public var u8[] string = "hello world"
+	var u8[] string = "hello world"
+
+Pointers:
+ Examples (Best to Worst practice)
+         public var i32 x = 5
+         var i32 x = 5
+
+         public var x = 5:i32
+         var x = 5:i32
+
+         public var x = 5
+         var x = 5
+
+Memory Allocation and Pointers:
+
+Memory Allocation happens through the Allocator interface.
+std.Allocator provides several allocators and is the only way to
+explicitly access the heap and stack allocator.
+
+A pointer is a component with the memory address of another component
+with the permission to read and write to that memory. A pointer may be
+casted to a reference. Given a pointer p1 and a pointer p2, an
+assignment of p2 to p1: 1. frees the memory associated with p1. 2.
+Assign the address value in p2 to the address value in p1. 3. Sets p2
+to null. This is called a move. A pointer is effecitvly a mutable
+borrow. When passing a pointer into a function it is moved to that
+function.
+
+A reference is a component with the memory address of another
+component with the permission to read from the memory. A reference may
+not be casted to a pointer. Including transitivly. A reference can
+only ever be assigned an address value that is on the stack. This
+prevents two owners to memory on the heap. A reference can only ever
+be assigned an address value in the scope that is was created. A
+reference is effecitbly a imutable borrow. A reference cannot be
+returned from a function. 
+
+Assigning the address value of a pointer to a reference address value
+and vice versa is semantically illegal in order to enforce borrow
+checking.
+
+
+the * symbol in postfix means pointer
+the * symbol in prefix  means dereference
+the ~ symbol in postfix means reference
+the & symbol in prefix means address
+
+Explicit and implicit stack allocation:
+	var i32 x = 5 # Implicit var i32* y =
+	std.allocator.stack.create<i32>(5) #Explicit
+
+Explicit and implicit heap allocation:
+	var i32* x = 5 # implicit var i32* y =
+	std.allocator.stack.create<i32>(5) # explicit
+
+Ex1:
+	var i32 x = 5
+	var i32* p1 = &x # single mutable borrow
+	var i32* p2 = &x # borrow error
+	var i32~ r1 = &x # borrow error
+	var i32~ r2 = p1 # semantically illegal: causes borrow error
+
+Ex2:
+  var i32 x = 5
+  var i32* p1 = &x
+  var i32* p2 = p1 # implicit p1 = null
+
+Ex3:
+  var i32 x = 5
+  var i32~ r1 = &x
+  var i32~ r2 = &x
+
+  ...
+
+  var i32~ rN = &x
+  var i32* p1 = &x # borrow error
+  var i32* p1 = r1 # semantically illegal: causes borrow error
+
+Ex4:
+	var i32 x = 5
+	var i32* p = 10 
+
+	def foo(i32~ y) {
+		var i32 z = 15
+		y = &z
+		# return y compiler error cannot return a reference type
+		return *y
+	}
+	def bar(i32* y) {
+		println(*y)
+	}
+	
+	var v = foo(&x)
+
+	bar(p) #prints 10
+
+	print(p) #prints null
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
