@@ -1,4 +1,4 @@
-Grammar and syntax:
+https://github.com/AdrianLongCarleton/CompilersGrammar and syntax:
 
 Linguistics defines a grammar as the structure of a language. From a
 top down perspective a grammar is a collection of transformation that
@@ -250,6 +250,10 @@ When defining components in lang the programer must consider.
    their short forms "var" and "val" respectibly to mean mutable and
    imutable. Mutability cannot be ommited like publicity.
 
+   Binding mutability is monotonic: a mutable binding (var) may be
+   finalized into a immutable binding (val) but an immutable binding
+   may never become mutable.
+
    mutability > "var" | "val";
 
 3. Type:
@@ -261,6 +265,251 @@ When defining components in lang the programer must consider.
    What will the variable be called?
 
    An identifier is any valid component name that is not a keyword.
+
+Examples:
+   
+   # Equivalent declaration of the the variable component x.
+   # In order of best to worst.
+      # With type hints
+      private var i32 x = 5
+      var i32 x = 5
+      
+      # With typed number literals
+      private var x = 5:i32
+      var x = 5:i32
+
+      # Without type hints
+      private var x = 5
+      var x = 5
+   
+   # Typed number literals are for initialization operations where an
+   # expression needs another type then i32 to hand overflow,
+   # underflow or saturation conditions. They also resolve ambiguity
+   # the command line interface.
+
+   It is better to use the first
+
+Control Flow, Excluding flags:
+
+Functions:
+function and lambdas have parameters and operate on the arguments to
+evaluate a collection of statements in order to return a result.
+
+the return type of a lambda or function is not declared explicitly in
+the syntax. Instead the return type is infered by what is return
+within the function. If a function returns only a single type, for
+example an int then the return type of that function is an int.
+Otherwise the function returns an enum of the possible result types.
+See objects for further detail on enums.
+
+Syntax:
+
+Note that type is currently undefined, see after the section on
+objects for the definition.
+
+functionDecl > publicity "def" ID '(' parameters ')' block;
+parameters > vararg identifer parametersTail;
+vararg > type varargTail;
+varargTail > "..." | epsilon;
+parametersTail > ',' parameters;
+block > '{' statements '}';
+
+functionCall > ID '(' arguments ')';
+argumentsOpt > arguments | epsilon;
+arguments > argumentBody argumentsBlock;
+argumentsBody > argument argumentBodyOpt;
+argumentsBodyOpt > ',' argumentsBody | epsilon;
+argumentsBlock > ';' arguments | epsilon;
+argument > integer | ... | float | string | identifier;
+
+arguments(argumentsBody(argument(1) argumentsBodyOpt(',' 
+argumentsBody(argument(2) argumentBodyOpt(',' argumentsBody(argument(
+3) argumentBodyOpt()))))) argumentsBlock(';' arguments(argumentsBody(
+argument(4) argumentsBodyOpt(',' argumentBody(argument(5)
+argumentBodyOpt()))) argumentsBlock(';' arguments(argumentBody(
+argument(6) argumentBodyOpt()) argumentsBlock())))))
+
+public def foo(i32... vararg, u8[] text) {
+   println(vararg)
+   println(text)
+   return 5
+}
+# foos return type is i32
+
+
+
+Objects:
+Objects are a type of component that contains other components.
+There are four types of objects: struct, class, enum, and
+interface.
+
+Memory Allocation and Pointers.
+
+Memory Allocation happens through the Allocator interface.
+std.Allocator provides several allocators and is the only way to
+explicitly access the heap and stack allocator.
+
+Both pointers and references are variables that contain an address to
+a memory location. Pointers have the right to mutate the data they
+point at and references do not. Pointers can point to the stack or the
+heap. References can point only to the stack.
+
+Assignment to a pointer is always a move. if p2 is assigned to p1 then
+p1 first releases it's memory. (Destroying a pointer with a pointer to
+the stack is a nop) Then the assigned is completed. Finally p2 is set
+to null.
+Assignment to a reference is only legal in the scope it was created
+in. Assigning a reference address to pointer address is illegal.Memory Allocation and Pointers.
+
+Memory Allocation happens through the Allocator interface.
+std.Allocator provides several allocators and is the only way to
+explicitly access the heap and stack allocator.
+
+Both pointers and references are variables that contain an address to
+a memory location. Pointers have the right to mutate the data they
+point at and references do not. Pointers can point to the stack or the
+heap. References can point only to the stack.
+
+Assignment to a pointer is always a move. if p2 is assigned to p1 then
+p1 first releases it's memory. (Destroying a pointer with a pointer to
+the stack is a nop) Then the assigned is completed. Finally p2 is set
+to null.
+Assignment to a reference is only legal in the scope it was created
+in.
+
+the * symbol in postfix means pointer
+the * symbol in prefix  means dereference
+the ~ symbol in postfix means reference
+the & symbol in prefix means address
+
+Explicit and implicit stack allocation:
+   var i32 x = 5 # Implicit
+   var i32* y = std.allocator.stack.create<i32>(5) #Explicit
+
+Explicit and implicit heap allocation:
+   var i32* x = 5 # implicit
+   var i32* y = std.allocator.stack.create<i32>(5) # explicit
+
+References and pointers are borrow checked.
+   In rust terms a pointer   is a  mutable borrow
+             and a reference is a imutable borrow
+Ex1:
+   var i32 x = 5
+   var i32* p1 = &x # single mutable borrow
+   var i32* p2 = &x # borrow error
+   var i32~ r1 = &x # borrow error
+
+Ex2:
+  var i32 x = 5
+  var i32* p1 = &x
+  var i32* p2 = p1 # implicit p1 = null
+
+Ex3:
+  var i32 x = 5
+  var i32~ r1 = &x
+  var i32~ r2 = &x
+  ...
+  var i32~ rN = &x
+  var i32* p1 = &x # borrow error
+  var i32* p1 = r1 # borrow error
+
+the * symbol in postfix means pointer
+the * symbol in prefix  means dereference
+the ~ symbol in postfix means reference
+the & symbol in prefix means address
+
+Explicit and implicit stack allocation:
+   var i32 x = 5 # Implicit
+   var i32* y = std.allocator.stack.create<i32>(5) #Explicit
+
+Explicit and implicit heap allocation:
+   var i32* x = 5 # implicit
+   var i32* y = std.allocator.stack.create<i32>(5) # explicit
+
+References and pointers are borrow checked.
+   In rust terms a pointer   is a  mutable borrow
+             and a reference is a imutable borrow
+Ex1:
+   var i32 x = 5
+   var i32* p1 = &x # single mutable borrow
+   var i32* p2 = &x # borrow error
+   var i32~ r1 = &x # borrow error
+
+Ex2:
+  var i32 x = 5
+  var i32* p1 = &x
+  var i32* p2 = p1 # implicit p1 = null
+
+Ex3:
+  var i32 x = 5
+  var i32~ r1 = &x
+  var i32~ r2 = &x
+  ...
+  var i32~ rN = &x
+  var i32* p1 = &x # borrow error
+  var i32* p1 = r1 # borrow errorA struct has all of it's child component private by default.
+
+Memory Allocation and Pointers.
+
+Memory Allocation happens through the Allocator interface.
+std.Allocator provides several allocators and is the only way to
+explicitly access the heap and stack allocator.
+
+Both pointers and references are variables that contain an address to
+a memory location. Pointers have the right to mutate the data they
+point at and references do not. Pointers can point to the stack or the
+heap. References can point only to the stack.
+
+Assignment to a pointer is always a move. if p2 is assigned to p1 then
+p1 first releases it's memory. (Destroying a pointer with a pointer to
+the stack is a nop) Then the assigned is completed. Finally p2 is set
+to null.
+Assignment to a reference is only legal in the scope it was created
+in.
+
+the * symbol in postfix means pointer
+the * symbol in prefix  means dereference
+the ~ symbol in postfix means reference
+the & symbol in prefix means address
+
+Explicit and implicit stack allocation:
+   var i32 x = 5 # Implicit
+   var i32* y = std.allocator.stack.create<i32>(5) #Explicit
+
+Explicit and implicit heap allocation:
+   var i32* x = 5 # implicit
+   var i32* y = std.allocator.stack.create<i32>(5) # explicit
+
+References and pointers are borrow checked. 
+   In rust terms a pointer   is a  mutable borrow
+             and a reference is a imutable borrow
+Ex1:   
+   var i32 x = 5
+   var i32* p1 = &x # single mutable borrow
+   var i32* p2 = &x # borrow error
+   var i32~ r1 = &x # borrow error
+
+Ex2:
+  var i32 x = 5
+  var i32* p1 = &x
+  var i32* p2 = p1 # implicit p1 = null
+
+Ex3:
+  var i32 x = 5
+  var i32~ r1 = &x
+  var i32~ r2 = &x
+  ...
+  var i32~ rN = &x
+  var i32* p1 = &x # borrow error
+  var i32* p1 = r1 # borrow error
+
+
+
+
+
+
+
+
 
 Build system:
 
@@ -354,3 +603,82 @@ accessible under env keyword.
 
 The cache keyword refers to the cache of projects that are saved on
 the system / machine that the build is executing on.
+
+Command Line Interface:
+
+flag version {
+   println(42)
+}
+flags {
+   o(u8[]* filePath) {
+      println(*filePath);
+   }
+   logName {
+      println(name)
+   }
+}
+program --version -o "thing" --logname
+42
+program -o "thing" --logname
+thing
+name
+program --logname -o "thing"
+name
+thing
+program -o "thing"
+thing
+program --logname
+name
+program -o --version
+42
+# Flag must occur
+flag required(u8[]* criticalInfo) {
+   println("This is important: {criticalInfo}")
+} else {
+   return std.CLI.error.required(required)
+}
+# One of a set of flags must occur
+flags flags {} else {
+   return std.CLI.error.requiredOneOf(flags)
+}
+# All of the flags in a set must occur
+flags {
+   f1 {
+   } else {
+      return std.CLI.error.required(f1)
+   }
+   f2 {
+   } else {
+      return std.CLI.error.required(f2)
+   }
+}
+# All of the flags must occur but in any order.
+
+Flags can be prefixed with the comptime keyword. Doing so will
+inline the code block depending on if the flag is passed
+into the compiler.
+
+All flags that the compiler for lang use are reserved and are thus
+illegal to use as comptime identifiers. Usage will result in an
+Error.IllegalFlagIdentifier.
+
+program.lang
+   comptime flag debug {
+      println("Hello World")
+   } else {
+      println("Goodbye World")
+   }
+
+lang program.lang -o compiled --debug
+./compiled
+Hello World
+lang program.lang -o compiled
+./compiled
+Goodbye World
+
+   ImplementationDetails:
+      The text in the terminal is parsed by the compiled executable.
+      
+      var bool[] flags = Array(3)
+      val <var bool[]>* flags = Array(std.allocator.heap,3) 
+
