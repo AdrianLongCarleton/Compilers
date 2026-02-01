@@ -212,15 +212,18 @@ Arrays:
 		# inffered sizing
 		var u8[] a = "text"      # becomes u8[4]
 		var u8[] b = [1,2,3]     # becomes u8[3]
-		
 		# equivalent generics for arrays
-		var Array<u8> ga = Array"text"  # ga.length is 4
-		var Array<u8> gb = Array[1,2,3] # gb.length is 3
+		var Array<u8> ga = Array<>"text"  # ga.length is 4
+		var Array<u8> gb1 = Array<>[1,2,3] # gb1.length is 3
+		var Array<u8> gb2 = Array<u8>[1,2,3] # gb2.length is 3
 
 		# non infered array size declatation
 		var u8[4] sa    # single dimension array
 		var u8[3][4] sb # mutli dimensional array.
 							 # 3 rows, 4 collumns
+		# equivalent generics for arrays
+		var Array<u8> gsa = Array.create<u8>(4)
+		var Array<Array<u8>> gsb = Array.create<u8>(3,4)
 
 		print(sa)       # [0,0,0,0]
 		print(sb)		 # [[0,0,0,0],[0,0,0,0],[0,0,0,0]]
@@ -233,322 +236,258 @@ Arrays:
 		print(sb)		 # [[0,0,0,0],[0,0,2,0],[0,0,0,0]]
 	
 	Additional examples:
-		var u8[] t1 = "text"
-		var u8[] t2 = 'text'
-		var u8[] t3 = [116,101,120,116]
-		var u8[] t4 = Array'text'
-		var u8[] t5 = Array"text"
-		var u8[] t6 = Array[116,101,120,116]
-		var Array<u8> t7 = "text"
-		
-		var u8[4] t8
-		print(t8) # [0,0,0,0]
-		t8[2] = 1
-		print(t8) # [0,0,1,0]
+		var u8[]      t1  = "text"
+		var u8[]		  t2  = 'text'
+		var u8[]		  t3  = [116,101,120,116]
+		var Array<u8> t4  = "text"
+		var Array<u8> t5  = 'text'
+		var Array<u8> t6  = [116,101,120,116]
 
-		var u8[3][4] t9
-		print(t9)
+		var u8[]      t7  = Array<>"text"
+		var u8[]      t8  = Array<>'text'
+		var u8[]      t9  = Array<>[116,101,120,116]
+		var Array<u8> t10 = Array<>"text"
+		var Array<u8> t11 = Array<>'text'
+		var Array<u8> t12 = Array<>[116,101,120,116]
+
+		#Note that other data types then Array cannot be assigned to [].
+		#Illegal: var u8[] error = List<u8>"text"
+
+		var u8[]      t13 = Array<u8>"text"
+		var u8[]      t14 = Array<u8>'text;
+		var u8[]      t15 = Array<u8>[116,101,120,116]
+		var Array<u8> t16 = Array<u8>"text"
+		var Array<u8> t17 = Array<u8>'text'
+		var Array<u8> t18 = Array<u8>[116,101,120,116]
+
+		var u8[4] t19
+		var u8[3][4] t20
+		#equivalent generic version
+		#var Array<Array<u8>> t19 = Array.create<u8>(4)
+		#var Array<Array<u8>> t20 = Array.create<u8>(3,4)
+
+		print(t19) # [0,0,0,0]
+		t8[2] = 1
+		print(t19) # [0,0,1,0]
+
+		print(t20)
 		# [[0,0,0,0],
 		#  [0,0,0,0],
 		#  [0,0,0,0]]
 		t9[1][2] = 1
-		print(t9)
+		print(t20)
 		# [[0,0,0,0],
 		#  [0,0,1,0],
 		#  [0,0,0,0]]
 
 		# See pointers for more information
+		# reasignable mutable slice
 		var u8[]* p1 = "text" # pointer to an array of u8's
+		# reasignable imutable slice
 		var u8[]~ p2 = "text" # reference to an array of u8's
 	
 Rerferences, Pointers, and Slices:
-   Pointers:
+	In assembly components are just an address and a region of memory.
 
-      1. Pointers are a component that contains the memory address of
-         another component and has the permision to mutate that
-         memory. A pointer always provides mutable access, but only
-         owns the memory if that memory was heap allocated. A mutable
-         pointer is a pointer whose address can be reassigned to
-         another address. The address space available for pointers is
-         unrestrained.
+	The variable x might exist at 0x00000000, be an i32 meaning it is 4
+	bytes long, and have the value 5.
 
-      2. A pointer can be generated using the '&' operator in prefix
-         on any componet:
+		var i32 x = 5 #0x00000000 00000000 00000000 00000000 0000o0101
 
-         var i32 x = 5
-         var i32* p = &x # '&x' yields a 'i32*' type with the address
-                         # of x
+	Some components memory region's might contain the address of
+	another region of memory. The type system allows operations on the
+	data at the memory address contained in these components. However
+	there are several restrictions enforced by the type system to
+	prevent dangerous behaviour due to this pattern.
 
-      3. Assignment in the form of either non pointer
-         or non reference but not both to a pointer represents a heap
-         allocation and a write.
+	1. Borrowing (Aliasing rules)
+		There are two patterns for address containing components.
+		Firstly that the address containing component is iteself
+		mutable or imutable denoted var or val. And secondly that the
+		memory region at the address contained in the component is
+		mutable or imutable. The latter is refered to as pointers and
+		references respectivly.
 
-         In c:
-            int *p = malloc(sizeof(int))
-            if (!p) return;
-            *p = 5
-            *p = 10
+		There can exist one pointer or infinite references to a given
+		memory region at a time but not both. That is the existance of a
+		references to a memory region and the existance of a pointer to
+		a memory region are mutally exclusive.
 
-            free(p)
-            p = malloc(sizeof(int));
-            if (!p) return;
-            *p = 15
+		Borrowing:
+		 - prevents data races.
+		 - enables aggressive compiler optimizations.
+		 - Makes aliasing explicit.
 
-         In lang:
-            var i32* p = 5
-            @p = 10
-            p = 15;
+		Syntax example:
+			var i32 x = 5
+			{
+				#The & operator generates a pointer to x.
+				var i32* p1 = &x #p is a single pointer to x
+			}
+			{
+				#The $ operator generate a reference to x.
+				var i32 r1 = $x #r1 is one of one   references to x.
+				var i32 r2 = $x #r2 is one of two   references to x.
+				var i32 r3 = $x #r3 is one of three references to x.
+			}
+			{
+				var i32* p1 = &x #mutably borrow from x
+				var i32~ r1 = $x #borrow error: p1 allready is mutably
+									  #borrowing from x.
+				var i32~ r2 = $x #borrow error: p1 allready is mutably
+									  #borrowing from x.
+			}
+			{
+				var i32~ r1 = $x #imutably borrow from x
+				var i32~ r2 = $x #imutably borrow from x
+				var i32* p1 = &x #borrow error: r1 and r2 are allready
+									  #imutably borrowing from x.
+			}
 
-            # A memory allocation error results in a
-            # error.allocationFailure type being generated.
+	2. Ownership
+		Every region of memory has exactly one owner at a time.
 
-      4. Assignment in the form pointer to pointer represent a move of
-         ownership.
+		 Ownership enables:
+		 - the owner to decide when memory is freed.
+		 - the pattern that when ownership moves, the old names becomes
+			unusable.
+		 - prevention of double-free and use-after-free patterns.
 
-         In C:
-            int x = 5;
-            int *p1 = malloc(sizeof(int)); if (!p1) return; *p1 = 10;
+		Ownership exists in lang, but it is only a fiction enforced by
+		the compiler. At runtime it is only still data at an address
+		containing an address.
 
-            free(p1);
-            p1 = &x;
+		Syntax example:
+			# Ownership of the memory region containing the value 5
+			# belongs to x. When x is dropped that memory region will be
+			# deallocated from the stack because x is a stack variable.
+			var i32 x = 5
+			{
+				var i32* p1 = &x
+			} #p1 is dropped. Allowing new pointers xor referenes to
+			  #exist.
+			{
+				var i32 r1 = $x
+				var i32 r2 = $x
+				var i32 r3 = $x
+			} #r1, r2, and r3 are dropped. Allowing new pointers xor
+		 	  #referces to exist.
+			{
+				var i32* p1 = &x
+				var i32~ r1 = $x #Since p1 was not dropped, r1 is not
+									  #allowed to exist.
+				var i32~ r2 = $x #Since p1 was not dropped, r2 is not
+									  #allowed to exist.
+			}
+			{
+				var i32~ r1 = $x
+				var i32~ r2 = $x
+				var i32* p1 = &x #Since r1, and r2 were not dropped p1 is
+									  #not allowed to exist.
+			}
 
-            int *p2 = malloc(sizeof(int)); if (!p2) return; *p2 = 15;
-            int *p3 = malloc(sizeof(int)); if (!p3) return; *p3 = 20;
-
-            free(p2);
-            p2 = p3;
-            p3 = null;
-
-            p3 = malloc(sizeof(int));
-            if (!p3)
-            return; *p3 = 25;
-
-            *p2 = *p3
-         In Lang:
-            var i32 x = 5
-            var i32* p1 = 10 # Heap allocation of 10
-
-            p1 = &x # &x generate a pointer type.
-                    # Therefore a memory move is performed.
-
-            var i32* p2 = 15
-            var i32* p3 = 20
-
-            p2 = p3
-
-            p3 = 25
-
-            @p2 = @p3
-
-      5. Assignment in the form reference to pointer is a type error
-         and prevents borrow errors.
-
-      6. A single pointer to a component is allowed to exist as long
-         as not references to that component exists.
-
-      7. Pointers are used for sole ownership but they can also point
-         to the stack where they on't own the data. Freeing a pointer
-         to the stack is a nop.
-
-      Clearifying example of a pointer to the stack:
-         var i32 x = 5
-         var i32* p = &x # p points to x but does not own it
-         p = 10 # 1. p is freed causing a nop.
-                # 2. p is assigned the address of an i32 allocated on
-                #    the heap.
-                # 3. the i32 at the adress stored in p is assigned to
-                #    10
-	References:
-      1. References are a component that contains the memory address
-         of another component and does not have the permision to
-         mutate that memory. A mutable refernce is a reference whose
-         address can be reassigned to another address. The address
-         soace available for references is restricted to the stack.
-
-      2. A reference can be generated using the '$' operator in prefix
-         on any component.
-
-         var i32 x = 5
-         var i32~ r = $x # '$x' yields a 'i32~' type with the address
-                         # of x.
-
-      3. Assignment in either the form non pointer or non reference
-         but not both to a reference is semantically illegal.
-
-      4. Assignment in the form reference to a reference represent a
-         deep copy of the address value between the two pointers.
-
-         var i32 x = 5
-         var i32~ r1 = $x
-         var i32~ r2 = r1 # the address of x is copied from r1 to r2.
-
-      5. Assignment in the form pointer to reference is a type error
-         and prevents borrow errors.
-
-      6. Any number of references to a component are allowed to exist
-         as long as no pointer points to that component.
-
-      7. Returning a reference is illegal.
-
-         var i32 x = 5
-         var i32~ r = $x
-
-         # see function declaration syntax for more details
-         def foo(i32~ r) {
-            var i32 y = 10
-            r = $y
-            return r # Error: Cannot return a reference.
-         }
-			
-			# Lifetime error: Address of y outlives the variable y.
-			# See lifetimes.
-         foo(r) 
-
-			# i32~ r is declared in foo. No reference in the parents
-			# scope persists after foo deallocated therefore this is a
-			# safe pattern.
-         foo($x)
-
-         assert r == $x # Allways evaluates to true because foo
-                        # mutated a shadow of r.
-
-      8. References may reference pointers however assignment of the
-         derefence is illegal.
-
-         var i32* p1 = 5
-         var i32*~ r = $p1
-         var i32* p2 = @r1 # illegal assignment of a dereferenced
-                           # reference to a pointer
+		All address containing components cannot be assigned arbitrary
+		addresses directly or transitivly because it is not guaranteed
+		that they can own the memory region at the address.
 	
-	Pointers / references to sequential data - Arrays:
-		The in-memory representation of an array depends on the context
-		in which it is used and on the optimizations applied by the
-		compiler. The exact layout is not guaranteed in all cases.
+	3. Lifetimes (temporal validity)
+		Pointers and references are valid only for a specific span of
+		time.
 
-		When no optimization is applied, an array is represented as a
-		contiguous block of memory that begins with 16 bytes of
-		metadata, followed immediately by the array elements. The
-		metadata is used by the runtime to perform bounds checking and
-		other legality checks during array access.
+		Pointers and references:
+		 - must not outlive the memory they point to.
+		 - must not be used after free.
+		 - must not escape its owner.
 
-		A pointer or reference to an array always points to the start of
-		the metadata, not to the first element.
+		Lifetimes are enforced at compile time, not stored in memory and
+		do not appear in assembly.
 
-		Example:
-			var u8[]* p1 = "text"
-			var Pointer<Array<u8>> p2 = Array['t','e','x','t']
-
-		Worst-case memory layout:
-
-		address(p1) + 0   : u64 capacity = 4
-		address(p1) + 8   : u64 count    = 4
-		address(p1) + 16  : u8  element  = 't'
-		address(p1) + 17  : u8  element  = 'e'
-		address(p1) + 18  : u8  element  = 'x'
-		address(p1) + 19  : u8  element  = 't'
-
-		This layout represents the minimum required structure when the
-		compiler cannot elide metadata or perform static analysis to
-		prove safe access.
+		var i32* p
+		{
+			var i32 x = 5
+			p = &x
+		}
+		println(p) #Lifetime error. The memory region for x no longer
+					  #exists.
 	
-	Pointers / references to sequential data - Slices:
-		A slice is a view into a contiguous subsection of an array. A
-		slice has exclusive access to but not onwership of the
-		underlying data and does not have the same memory layout as an
-		array.
+	4. Slices
+		Slices are pointers or references to continuous memory. They are
+		also sometimes called fat pointer because they are represented
+		as (address, length). Slices borrow ownership on the memory
+		region that they point to. Operations that would invalidate or
+		mutate that region of memory by the memory region's owner are
+		illegal and enforced by lifetimes.
 
-		Slices are declared using the same syntax as pointers /
-		references to arrays reflecting their meaning: a slice is a
-		pointer / reference like view into array data. Despite sharing
-		syntax slices and arrays are distinct types due to the
-		differences in their memory layouts.
+		var i32[] array = [0,1,2,3,4,5]
+		var i32[]* s1 = array[0..2]
+		var i32[]* s2 = array[1..4] #borrow error cannot mutably borrow
+											 #from array[1..4], s1 currenly owns
+											 #array[0..2] which overlaps [1..4]
+											 #at [1..2]
+		var i32[]~ r1 = array[2..5] #imutably borrow the rest of the
+									  #array except the last one at pos 5.
+									  # Legal because it doesn't overlap s1.
 
-		var u8[]* array = [0,1,2,3,4]
-		var u8[]* slice = array[1..4] # a view into elements 1 up to
-												# but not inlcuding 4 of array
-		array = slize # Illegal assignment:
-						  # lhs = Pointer<Array<u8>>
-						  # rhs = Slice<u8>
+									    #slices
+		var i32[]~ s3 = s1[0..2] #imutably borrow from s1 at 0 and 1.
+		s1[0]++ #borrow error. s3 is immutably borrowing s1 at [0..2]
+		array[5]++ #legal because array still owns pos[5]
 
-		Although this syntax may appear ambigous, it is unambiguous in
-		well structured code. A component declared as a referene or
-		pointer to an array will always refer to or point to an array
-		and a component initialized from slicing always points to or
-		refers to a subsection or view of an array. The types are fixed
-		at declaration and do not change. If the syntax is uncofortable
-		instead use the explicit syntax:
+	5. Owning heap memory: Heap<T> x
+		Using the Heap<T> type defines a heap allocated T owned by the
+		component x. When x is dropped the heap allocated T is freed.
+		Additionally it cannot be aliased mutable without borrowing.
 
-		var Pointer<Array<u8>> array = [0,1,2,3,4]
-		var Slice<u8> slice = array[0..4]
-		array = slice # Erroro
+		Heap is an implementation of the Allocator interface.
+		Everything that is allocated can be stored in the generic type
+		Allocated that defines all the behaviour for memory safety.
 
-		A slice is represented as a small descriptor containg a lengfth
-		and a pointer/reference to underlying data:
+		var Allocated<i32> x = Heap.create<i32>(5)
+		var Allocated<i32> y = x #x is unusable
+		println(x) #Borrow error. x was moved to y.
 
-		address(slice) + 0  : u64 length = 3
-		address(slize) + 8  : u64 data   = address(array)
-		
-	Lifetimes - Slices:
-		A slice is a view into a contiguous region of a sequential
-		data structure. Slices do not own any data. Ownership always
-		remains with the original data structure. This pattern is
-		enforced through the ussage of lifetimes.
+		when x is dropped the memory at the address in x is freed.
+		Allocated<i32> can be abreviated to i32@ which is read a i32
+		allocation. For 
 
-		A mutable slice T[]* is an exclusive borrow of the sliced
-		region. An immutable slice T[]~ is a shared borrow of the sliced
-		region. The same borrow rules for references and pointers apply
-		to slices.
+	6. Rule breakers:
+		a) Cell<T>
+			Cell<T> is a mutable container that stores a value of type T.
+			Mutation of the data contained by a cell is allowed only
+			through read and write operations. Any operation that
+			produces a reference or a pointer to the memory region
+			indicated by the cell is illegal. By definition this is
+			thread safe beucase no two threads can access the same memory
+			region through one cell.
+		b) RefCell<T>
+			RefCell<T> indicates that the type T is runtime borrow
+			checked instead of at compile time.
+		c) Mutex<T> allows mutable access to the memory region of the
+			component of type T. Memory safety is a result of exclusive
+			access provided through locking.
+		d) AtomicType (replace Type with the specific Atomic type)
+			All atomic types support operations where the operations are
+			indivisible. The CPU executes the entire operation in one
+			unit.
+		e) Rc<T>
+			Reference counting is a fat pointer to the heap. Any number
+			of Rc<T> types to the same heap memory is allowed to exist.
+			When a new Rc<T> is set to point to the heap memory a
+			references variable is incremented. When Rc<T> is dropped the
+			variable is decremented. When the variable reaches zero the
+			memory on the heap is freed.
 
-		While a mutable slice is alive, all access (read or write) by
-		the original owner or any other borrow to the sliced region
-		is illegal.
-
-		Slices are bounded by lifetimes:
-			A slice may not outlive the data it refers to.
-			Using a slice after the lifetime of its source data ends
-			is illegal.
-
-		Example:
-		var i32[]* data = [0,1,2,3,4,5,6,7,8,9]
-		{
-			var i32[]* slice = data[3..7]
-			
-			# Illegal: original owner may not access borrowed region
-			# data[3] = 10
-
-			slice[0] = 15
-		}
-
-		print(data)  # [0,1,2,15,4,5,6,7,8,9]
-
-		data[3] = 20
-		print(data)  # [0,1,2,20,4,5,6,7,8,9]
-
-		Any attempt to create a pointer or reference to a region
-		currently borrowed by a slice that violates borrow
-		exclusivity is illegal.
-
-	Lifetimes - Pointers and References:
-
-		Pointers and references are subject to lifetime constraints:
-
-		A pointer or reference may not outlive the storage it refers
-		to. The compiler must reject any program where a borrow
-		escapes the lifetime of its source.
-
-		Example:
-
-		var i32* x = 5 
-		{
-			var i32 y = 10
-			x = &y
-		}
-		x += 5  # Error:
-		pointer outlives the lifetime of `y`
-
-		In this example, y is destroyed at the end of the inner
-		scope.  Assigning its address to x would produce a dangling
-		pointer, which is illegal.
+			A reference-counted value may provide mutable access to its
+			contained component only when the container itself is
+			exclusivly borrowed. if the strong reference count equals one,
+			the container may yield a pointer to the contained value
+			otherwise, mutable access is denied. 
+		f) Arc<T> 
+			Atomic refrence counting is the same as reference counting
+			however it is thread safe. All operations on an Arc are
+			atomix. That is the increment and decrement of the references
+			count for the Arc<T> are executed in a single unit by the
+			cpu. 
 
 Control Flow:
 	if and match are expression and can be used anywhere where an
@@ -658,8 +597,7 @@ Functions:
 
 	3. Functions can operate on variable or value components
 		differently. Lack of var or val on parameters is assumed to mean
-		mutable if passed by value and imutable if passed by reference
-		or by pointer.
+		imutable.
 
 		var i32 x = 5
 		val i32 y = 10
@@ -679,15 +617,109 @@ Functions:
 		function. Illegal behaviour is prevented without code
 		generation.
 
+		import std
 		def heapAllocate<T>() {
-			var T* ptr = std.heap.allocator<T>()
+			var T* ptr = std.heap.create<T>()
 			return ptr
 		}
 
 		var i32* p = heapAllocate<i32>()
 		var u8[]* str = heapAllocate<u8[]>()
 
+	5. Optional parameters can be ommited when calling the function.
+		def foo(i32? y) {
+			#i32? is identical to Optional<i32>
+			if y == null {
+				println("Ommited or null")
+			} else {
+				println(y)
+			}
+		}
 
+		foo() #Prints ommited or null
+		foo(5) #Prints 5
 
 Objects:
+	structs and interfaces both define a layout of components in
+	memory. A struct has all it's components public by default and a
+	class has all it's components private by default. Interfaces and
+	enums assume public by default. An interface defines functionallity
+	that any struct, class, or enum must have. It can define default
+	behaviour. Usage of self in interfaces is illegal.
+
+	Enums have an usigned integer value
+	associated and a certain size of memory associated with them.
+	Components that an enum contains are overlapped such that the size
+	of the enum is the size of the unsigned integers plus the largest
+	component size. The unsigned integer is used to determine which
+	component or components the enum actually contains.
+
+	import std.allocator.heap as Heap
+	struct Point {
+		var i32 x
+		val i32 y
+
+		def create(Point* point, i32 x, i32 y) {
+			*point = Point{x,y}
+			return point
+		}
+		def create(i32 x, i32) {
+			return Point{x,y}
+		}
+
+		private def foo() {
+			println("Can't be called outside of this struct")
+		}
+	}
+	class Person {
+		var Heap<u8[]> name
+		var u8 age
+
+		public def create(u8[] name, u8 age) {
+			return Person{name,age}
+		}
+		public def create(Person* person,u8[] name, u8 age) {
+			person.name = Heap.create<u8[]>(name)
+			person.age = age
+			return person
+		}
+		public def ageUp(Person* self) {
+			self.age += 1
+		} 
+		def dance(Person* self) {
+			println("{name} doesn't dance in public.")
+		}
+	}
 	
+	var Point point1 = Point.create(5,5)
+	var Allocated<Point> point2 = Heap.create<Point>(5,5)
+
+	println(point1, point1.x, point1.y) #all good
+	Point.foo() #Error foo is private to foo.
+	
+	var Arena<Person> people = Heap.create<Arena<Person>>(100)
+	var Allocated<Person> person1 = people.create("Steve",18)
+	var Person@ person2 = people.create("Jeff", 27)
+	*person1 = Person.create(*person1,"Bob",42)
+
+	enum TypedUnionEssentially {
+		PERSON(Person@ person)
+		POINT(Point@ point)
+		OTHER
+
+		def toString(TypedUnionEssentially e) {
+			match e {
+				PERSON: {
+					println("A person: {e.person})
+				}
+				POINT: {
+					println("A point: {e.point})
+				}
+				_: {
+					println("OTHER")
+				}
+			}
+		} 
+	}
+	interface Speaks {
+	}
